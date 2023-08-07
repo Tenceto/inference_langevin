@@ -1,0 +1,5 @@
+Downloaded from https://huggingface.co/datasets/graphs-datasets/deezer_ego_nets
+
+max_nodes = 24
+min_nodes = 16
+size = 2926 (100 excluded for testing)

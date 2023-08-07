@@ -1,0 +1,79 @@
+dataset:
+  dataset_size: 4000
+  max_node_num: 53
+  name: barabasi_albert_[47, 49, 51, 53]
+dev: !!python/object/apply:torch.device
+- cuda
+exp_dir: edp_gnn/exp
+exp_name: barabasi_albert_diff_nodes
+folder_name: edp-gnn_barabasi_albert_[47, 49, 51, 53]__Jun-13-10-13-20_999031
+mcmc:
+  eps:
+  - 1.0
+  - 0.5
+  - 0.1
+  fixed_node_number: true
+  grad_step_size:
+  - 0.05
+  - 0.005
+  - 0.0005
+  name: langevin
+  step_num: 300
+model:
+  models:
+    model_1:
+      channel_num_list:
+      - 2
+      - 4
+      - 4
+      - 4
+      - 2
+      dropout_p: 0.0
+      feature_nums:
+      - 16
+      - 16
+      - 16
+      - 16
+      - 16
+      gnn_hidden_num_list:
+      - 16
+      - 16
+      - 16
+      - 16
+      name: gin
+      use_norm_layers: false
+  name: edp-gnn
+  stack_num: 1
+model_save_dir: edp_gnn/exp/barabasi_albert_diff_nodes/edp-gnn_barabasi_albert_[47,
+  49, 51, 53]__Jun-13-10-13-20_999031/models
+run_id: '999031'
+sample:
+  batch_size: 32
+  num_samples: 100
+save_dir: edp_gnn/exp/barabasi_albert_diff_nodes/edp-gnn_barabasi_albert_[47,
+  49, 51, 53]__Jun-13-10-13-20_999031
+seed: 7892
+test:
+  batch_size: 32
+  split: 0.2
+train:
+  batch_size: 32
+  lr_dacey: 0.999
+  lr_init: 0.001
+  max_epoch: 5001
+  momentum: 0.9
+  sample_interval: 2500
+  save_interval: 2500
+  shuffle: true
+  sigmas:
+  - 0.03
+  - 0.08222222
+  - 0.13444444
+  - 0.18666667
+  - 0.23888889
+  - 0.29111111
+  - 0.34333333
+  - 0.39555556
+  - 0.44777778
+  - 0.5
+  weight_decay: 0.0

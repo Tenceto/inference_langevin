@@ -1,0 +1,3 @@
+2_communities
+nodes: 20
+seed_nx: 0
