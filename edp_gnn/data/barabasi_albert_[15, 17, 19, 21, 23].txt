@@ -1,0 +1,7 @@
+barabasi_albert
+nodes = [15, 17, 19, 21, 23]
+m1 = 2
+m2 = 4
+p = 0.5
+dataset_size = 500 (per nodes)
+seeds = nodes
