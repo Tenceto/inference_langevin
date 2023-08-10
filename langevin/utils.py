@@ -46,15 +46,17 @@ def pad_adjs(ori_adj, node_number):
 def heat_diffusion_filter(A, theta):
     L = compute_laplacian(A)
     return torch.linalg.matrix_exp(- L * theta)
+    # return - 0.2 * L - torch.eye(L.shape[0])
 
 def compute_laplacian(A):
     D = torch.diag(A.sum(axis=1))
     return D - A
 
-def compute_aucroc(A, A_est, return_threshold=False):
-    idxs_triu = torch.triu_indices(A.shape[0], A.shape[1], offset=1)
-    a = A[idxs_triu[0], idxs_triu[1]].cpu().numpy()
-    a_est = A_est[idxs_triu[0], idxs_triu[1]].cpu().numpy()
+def compute_aucroc(A, A_est, use_idxs=None, return_threshold=False):
+    if use_idxs is None:
+        use_idxs = torch.triu_indices(A.shape[0], A.shape[1], offset=1)
+    a = A[use_idxs[0], use_idxs[1]].cpu().numpy()
+    a_est = A_est[use_idxs[0], use_idxs[1]].cpu().numpy()
     if return_threshold:
         fpr, tpr, thresholds = roc_curve(a, a_est)
         optimal_idx = np.argmax(tpr - fpr)

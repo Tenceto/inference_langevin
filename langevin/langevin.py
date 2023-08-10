@@ -47,16 +47,27 @@ class LangevinEstimator:
 
         return grad
 
+    def langevin_estimate(self, A_nan, X, Y, sigmas_sq, epsilon, steps, temperature, projection_method="rounding", clip_A_tilde=False, true_A=None):
         # Initialize theta_tilde if it isn't fixed
         if self.estimate_theta:
             self.update_theta_annealed_prior(sigmas_sq[0])
+            self.theta_tilde = self.theta_prior_dist.sample()
+
+        unknown_idxs = torch.where(torch.isnan(torch.triu(A_nan)))
+        known_mask = ~ torch.isnan(A_nan)
+        size_unknown = len(unknown_idxs[0])
+        
         dim_theta = len([self.theta_tilde])
-        z_dist = torch.distributions.MultivariateNormal(torch.zeros(dim_A), torch.eye(dim_A))
+
+        # Distributions for the Langevin noise (NOT the annealing one, these have unitary variance)
+        z_dist = torch.distributions.MultivariateNormal(torch.zeros(size_unknown), torch.eye(size_unknown))
         v_dist = torch.distributions.MultivariateNormal(torch.zeros(dim_theta), torch.eye(dim_theta))
 
+        # Initialize A_tilde and its projection
         self.A_tilde = torch.distributions.Normal(0.5, 0.1).sample((X.shape[0], X.shape[0]))
         self.A_tilde = 0.5 * (torch.triu(self.A_tilde) + torch.triu(self.A_tilde, 1).T)
         self.A_tilde.fill_diagonal_(0.0)
+        self.A_tilde[known_mask] = A_nan[known_mask]
         self.A_proj = self.project_adjacency_matrix(projection_method)
 
         if true_A is not None:
@@ -74,14 +85,15 @@ class LangevinEstimator:
                     break
                 z = z_dist.sample([1])
                 v = v_dist.sample([1])
-
-                score_prior_A = self.A_score_model(self.A_tilde, sigma_i_idx)[idxs_triu[0], idxs_triu[1]]
-                score_likelihood_A = self.score_joint_likelihood(X, Y, grad_variable="A")[idxs_triu[0], idxs_triu[1]]
                 
-                self.A_tilde[idxs_triu[0], idxs_triu[1]] = (self.A_tilde[idxs_triu[0], idxs_triu[1]]
+                # Update A
+                score_prior_A = self.A_score_model(self.A_tilde, sigma_i_idx)[unknown_idxs[0], unknown_idxs[1]]
+                score_likelihood_A = self.score_joint_likelihood(X, Y, grad_variable="A")[unknown_idxs[0], unknown_idxs[1]]
+                
+                self.A_tilde[unknown_idxs[0], unknown_idxs[1]] = (self.A_tilde[unknown_idxs[0], unknown_idxs[1]]
                                                             + alpha * (score_prior_A + score_likelihood_A)
                                                             + torch.sqrt(2 * alpha * temperature) * z)
-                self.A_tilde[idxs_triu[1], idxs_triu[0]] = self.A_tilde[idxs_triu[0], idxs_triu[1]]
+                self.A_tilde[unknown_idxs[1], unknown_idxs[0]] = self.A_tilde[unknown_idxs[0], unknown_idxs[1]]
                 
                 if clip_A_tilde:
                     self.A_tilde = self.clip_adjacency_matrix(torch.sqrt(sigma_i_sq))
@@ -94,8 +106,9 @@ class LangevinEstimator:
                     score_likelihood_theta = self.score_joint_likelihood(X, Y, grad_variable="theta")
                     self.theta_tilde = self.theta_tilde + alpha * (score_prior_theta + score_likelihood_theta) + torch.sqrt(2 * alpha * temperature) * v
 
+                # Compute metrics
                 if compute_metrics:
-                    self.metrics["aucroc"][steps * sigma_i_idx + t] = compute_aucroc(true_A, self.A_tilde)
+                    self.metrics["aucroc"][steps * sigma_i_idx + t] = compute_aucroc(true_A, self.A_tilde, use_idxs=unknown_idxs)
 
         return None
     
