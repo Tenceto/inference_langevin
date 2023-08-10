@@ -5,7 +5,6 @@ from langevin.utils import compute_aucroc
 class LangevinEstimator:
     def __init__(self, h_theta, A_score_model, sigma_e, theta_prior_dist=None, theta_fixed=None):
         self.h_theta = h_theta
-        self.theta_prior_dist = theta_prior_dist
         self.A_score_model = A_score_model
         self.sigma_e = sigma_e
 
@@ -13,9 +12,13 @@ class LangevinEstimator:
             self.theta_tilde = theta_fixed
             self.estimate_theta = False
         else:
-            self.theta_tilde = self.theta_prior_dist.sample()
+            assert type(theta_prior_dist) is torch.distributions.normal.Normal, "Only normal prior is supported for theta."
+            self.theta_prior_mean = theta_prior_dist.loc
+            self.theta_prior_var = theta_prior_dist.scale ** 2
             self.estimate_theta = True
-
+            # This distribution will be updated every time the noise level changes
+            self.theta_prior_dist = None
+        
         self.metrics = None
 
     def score_joint_likelihood(self, X, Y, grad_variable):
@@ -44,9 +47,9 @@ class LangevinEstimator:
 
         return grad
 
-    def langevin_estimate(self, X, Y, sigmas_sq, epsilon, steps, temperature, projection_method="rounding", clip_A_tilde=False, true_A=None):
-        idxs_triu = torch.triu_indices(X.shape[0], X.shape[0], offset=1)
-        dim_A = len(idxs_triu[0])
+        # Initialize theta_tilde if it isn't fixed
+        if self.estimate_theta:
+            self.update_theta_annealed_prior(sigmas_sq[0])
         dim_theta = len([self.theta_tilde])
         z_dist = torch.distributions.MultivariateNormal(torch.zeros(dim_A), torch.eye(dim_A))
         v_dist = torch.distributions.MultivariateNormal(torch.zeros(dim_theta), torch.eye(dim_theta))
@@ -83,8 +86,9 @@ class LangevinEstimator:
                 if clip_A_tilde:
                     self.A_tilde = self.clip_adjacency_matrix(torch.sqrt(sigma_i_sq))
 
-                # Convert the current A_tilde to only 0 and 1
                 self.A_proj = self.project_adjacency_matrix(projection_method)
+
+                # Update theta
                 if self.estimate_theta:
                     score_prior_theta = self.compute_theta_prior_score()
                     score_likelihood_theta = self.score_joint_likelihood(X, Y, grad_variable="theta")
@@ -112,3 +116,8 @@ class LangevinEstimator:
     def clip_adjacency_matrix(self, sigma_i):
         min_clip, max_clip = 0.0 - sigma_i, 1.0 + sigma_i
         return torch.clip(self.A_tilde, min_clip, max_clip)
+    
+    def update_theta_annealed_prior(self, sigma_i_sq):
+        new_scale = torch.sqrt(self.theta_prior_var + sigma_i_sq)
+        self.theta_prior_dist = torch.distributions.Normal(self.theta_prior_mean, new_scale)
+
