@@ -134,3 +134,46 @@ class LangevinEstimator:
         new_scale = torch.sqrt(self.theta_prior_var + sigma_i_sq)
         self.theta_prior_dist = torch.distributions.Normal(self.theta_prior_mean, new_scale)
 
+class AdamEstimator:
+    def __init__(self, h_theta, sigma_e, lr, n_iter):
+        self.h_theta = h_theta
+        self.sigma_e = sigma_e
+        self.lr = lr
+        self.n_iter = n_iter
+
+    def adam_estimate(self, A_nan, X, Y):
+        A_tilde = torch.distributions.Normal(0.5, 0.1).sample((X.shape[0], X.shape[0]))
+        A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
+        A_tilde.fill_diagonal_(0.0)
+        
+        unknown_mask = torch.isnan(A_nan)
+        A_tilde[~ unknown_mask] = A_nan[~ unknown_mask]
+
+        A_tilde.requires_grad_(True)
+        loss_hist = []
+
+        optimizer = torch.optim.Adam([A_tilde], lr=self.lr)
+
+        for _ in range(self.n_iter):
+            A = self.symmetrize_and_clip(A_tilde, A_nan, unknown_mask)
+            optimizer.zero_grad()
+            loss = self.compute_minus_likelihood(A, X, Y)
+            loss.backward()
+            optimizer.step()
+            loss_hist.append(loss.item())
+
+        A = self.symmetrize_and_clip(A_tilde.detach(), A_nan, unknown_mask)
+        
+        return A, loss_hist
+    
+    def compute_minus_likelihood(self, A, X, Y):
+        A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
+        F = self.h_theta(A_symmetric)
+        log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
+        return - log_likelihood
+    
+    def symmetrize_and_clip(self, A, A_nan, unknown_mask):
+        A = torch.triu(A) + torch.triu(A, diagonal=1).T
+        A = torch.clip(A, 0.0, 1.0)
+        A[~ unknown_mask] = A_nan[~ unknown_mask]
+        return A
