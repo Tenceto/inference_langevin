@@ -64,3 +64,15 @@ def compute_aucroc(A, A_est, use_idxs=None, return_threshold=False):
         return roc_auc_score(a, a_est), optimal_threshold
     else:
          return roc_auc_score(a, a_est)
+
+def create_partially_known_graph(A, p_unknown):
+    triu_idxs = torch.triu_indices(A.shape[0], A.shape[0], offset=1)
+    num_edges = len(triu_idxs[0])
+    selected_unknown = torch.multinomial(torch.tensor([1 / num_edges] * num_edges), 
+                                         int(num_edges * p_unknown), 
+                                         replacement=False)
+    A_nan = A.clone()
+    unknown_idxs = triu_idxs[0][selected_unknown], triu_idxs[1][selected_unknown]
+    A_nan[unknown_idxs[0], unknown_idxs[1]] = torch.nan
+    A_nan[unknown_idxs[1], unknown_idxs[0]] = torch.nan
+    return A_nan
