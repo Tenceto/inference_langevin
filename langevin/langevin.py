@@ -47,10 +47,18 @@ class LangevinEstimator:
 
         return grad
 
-    def langevin_estimate(self, A_nan, X, Y, sigmas_sq, epsilon, steps, temperature, projection_method="rounding", clip_A_tilde=False, true_A=None):
+    def langevin_estimate(self, A_nan, X, Y, 
+                          sigmas_sq_A, sigmas_sq_theta, 
+                          epsilon_A, epsilon_theta, 
+                          temperature_A, temperature_theta,
+                          steps,
+                          projection_method="rounding", clip_A_tilde=False, true_A=None, true_theta=None):
+
+        assert len(sigmas_sq_A) == len(sigmas_sq_theta), "sigmas_sq_A and sigmas_sq_theta must have the same length."
+
         # Initialize theta_tilde if it isn't fixed
         if self.estimate_theta:
-            self.update_theta_annealed_prior(sigmas_sq[0])
+            self.update_theta_annealed_prior(sigmas_sq_theta[0])
             self.theta_tilde = self.theta_prior_dist.sample()
 
         unknown_idxs = torch.where(torch.isnan(torch.triu(A_nan)))
@@ -72,12 +80,15 @@ class LangevinEstimator:
 
         if true_A is not None:
             compute_metrics = True
-            self.metrics = {"aucroc": torch.empty(steps * len(sigmas_sq))}
+            self.metrics = {"aucroc": torch.empty(steps * len(sigmas_sq_A))}
         else:
             compute_metrics = False
+        if self.estimate_theta and true_theta is not None:
+            self.metrics["relative_error"] = torch.empty(steps * len(sigmas_sq_theta))
 
-        for sigma_i_idx, sigma_i_sq in enumerate(sigmas_sq):
-            alpha = epsilon * sigma_i_sq / sigmas_sq[-1]
+        for sigma_i_idx, (sigma_i_sq_A, sigma_i_sq_theta) in enumerate(zip(sigmas_sq_A, sigmas_sq_theta)):
+            alpha_A = epsilon_A * sigma_i_sq_A / sigmas_sq_A[-1]
+            alpha_theta = epsilon_theta * sigma_i_sq_theta / sigmas_sq_theta[-1]
             # sigma_i = torch.sqrt(sigma_i_sq)
             for t in range(steps):
                 if torch.any(torch.isnan(self.A_tilde)):
@@ -91,12 +102,12 @@ class LangevinEstimator:
                 score_likelihood_A = self.score_joint_likelihood(X, Y, grad_variable="A")[unknown_idxs[0], unknown_idxs[1]]
                 
                 self.A_tilde[unknown_idxs[0], unknown_idxs[1]] = (self.A_tilde[unknown_idxs[0], unknown_idxs[1]]
-                                                            + alpha * (score_prior_A + score_likelihood_A)
-                                                            + torch.sqrt(2 * alpha * temperature) * z)
+                                                                  + alpha_A * (score_prior_A + score_likelihood_A)
+                                                                  + torch.sqrt(2 * alpha_A * temperature_A) * z)
                 self.A_tilde[unknown_idxs[1], unknown_idxs[0]] = self.A_tilde[unknown_idxs[0], unknown_idxs[1]]
                 
                 if clip_A_tilde:
-                    self.A_tilde = self.clip_adjacency_matrix(torch.sqrt(sigma_i_sq))
+                    self.A_tilde = self.clip_adjacency_matrix(torch.sqrt(sigma_i_sq_A))
 
                 self.A_proj = self.project_adjacency_matrix(projection_method)
 
@@ -104,11 +115,17 @@ class LangevinEstimator:
                 if self.estimate_theta:
                     score_prior_theta = self.compute_theta_prior_score()
                     score_likelihood_theta = self.score_joint_likelihood(X, Y, grad_variable="theta")
-                    self.theta_tilde = self.theta_tilde + alpha * (score_prior_theta + score_likelihood_theta) + torch.sqrt(2 * alpha * temperature) * v
+                    self.theta_tilde = (self.theta_tilde 
+                                        + alpha_theta * (score_prior_theta + score_likelihood_theta) 
+                                        + torch.sqrt(2 * alpha_theta * temperature_theta) * v)
+                    # TODO: This is only for the exponential filter, because if theta is negative the filter will diverge
+                    self.theta_tilde = torch.clip(self.theta_tilde, min=0.0)
 
                 # Compute metrics
                 if compute_metrics:
                     self.metrics["aucroc"][steps * sigma_i_idx + t] = compute_aucroc(true_A, self.A_tilde, use_idxs=unknown_idxs)
+                    if self.estimate_theta and true_theta is not None:
+                        self.metrics["relative_error"][steps * sigma_i_idx + t] = compute_relative_error(true_theta, self.theta_tilde)
 
         return None
     
@@ -141,7 +158,7 @@ class AdamEstimator:
         self.lr = lr
         self.n_iter = n_iter
 
-    def adam_estimate(self, A_nan, X, Y):
+    def adam_estimate(self, A_nan, X, Y, theta_prior_dist=None, theta_fixed=None):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
