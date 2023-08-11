@@ -65,6 +65,9 @@ def compute_aucroc(A, A_est, use_idxs=None, return_threshold=False):
     else:
          return roc_auc_score(a, a_est)
 
+def compute_relative_error(theta, theta_est):
+    return torch.abs(theta - theta_est) / theta
+
 def create_partially_known_graph(A, p_unknown):
     triu_idxs = torch.triu_indices(A.shape[0], A.shape[0], offset=1)
     num_edges = len(triu_idxs[0])

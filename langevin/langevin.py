@@ -1,5 +1,5 @@
 import torch
-from langevin.utils import compute_aucroc
+from langevin.utils import compute_aucroc, compute_relative_error
 
 
 class LangevinEstimator:
