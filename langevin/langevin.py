@@ -64,7 +64,7 @@ class LangevinEstimator:
         v_dist = torch.distributions.MultivariateNormal(torch.zeros(dim_theta), torch.eye(dim_theta))
 
         # Initialize A_tilde and its projection
-        self.A_tilde = torch.distributions.Normal(0.5, 0.1).sample((X.shape[0], X.shape[0]))
+        self.A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         self.A_tilde = 0.5 * (torch.triu(self.A_tilde) + torch.triu(self.A_tilde, 1).T)
         self.A_tilde.fill_diagonal_(0.0)
         self.A_tilde[known_mask] = A_nan[known_mask]
@@ -142,7 +142,7 @@ class AdamEstimator:
         self.n_iter = n_iter
 
     def adam_estimate(self, A_nan, X, Y):
-        A_tilde = torch.distributions.Normal(0.5, 0.1).sample((X.shape[0], X.shape[0]))
+        A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
         
