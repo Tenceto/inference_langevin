@@ -104,13 +104,14 @@ class LangevinEstimator:
 
 
 class AdamEstimator:
-    def __init__(self, h_theta, sigma_e, lr, n_iter):
+    def __init__(self, h_theta, sigma_e, lr, l1_penalty, n_iter):
         self.h_theta = h_theta
         self.sigma_e = sigma_e
         self.lr = lr
+        self.l1_penalty = l1_penalty
         self.n_iter = n_iter
 
-    def adam_estimate(self, A_nan, X, Y, theta_prior_dist=None, theta_fixed=None):
+    def adam_estimate(self, A_nan, X, Y, theta_prior_dist):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
@@ -119,27 +120,32 @@ class AdamEstimator:
         A_tilde[~ unknown_mask] = A_nan[~ unknown_mask]
 
         A_tilde.requires_grad_(True)
-        loss_hist = []
 
+        theta = 6.679615708013128
         optimizer = torch.optim.Adam([A_tilde], lr=self.lr)
 
+        # theta = theta_prior_dist.sample().abs()
+        # theta.requires_grad_(True)
+        # optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
+        loss_hist = []
+
         for _ in range(self.n_iter):
-            A = self.symmetrize_and_clip(A_tilde, A_nan, unknown_mask)
             optimizer.zero_grad()
-            loss = self.compute_minus_likelihood(A, X, Y)
+            A = self.symmetrize_and_clip(A_tilde, A_nan, unknown_mask)
+            loss = self.compute_penalized_minus_likelihood(A, X, Y, theta)
             loss.backward()
             optimizer.step()
             loss_hist.append(loss.item())
 
         A = self.symmetrize_and_clip(A_tilde.detach(), A_nan, unknown_mask)
         
-        return A, loss_hist
+        return A, theta, loss_hist
     
-    def compute_minus_likelihood(self, A, X, Y):
+    def compute_penalized_minus_likelihood(self, A, X, Y, theta):
         A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
-        F = self.h_theta(A_symmetric)
+        F = self.h_theta(A_symmetric, theta)
         log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
-        return - log_likelihood
+        return - log_likelihood + self.l1_penalty * A_symmetric.abs().sum()
     
     def symmetrize_and_clip(self, A, A_nan, unknown_mask):
         A = torch.triu(A) + torch.triu(A, diagonal=1).T
