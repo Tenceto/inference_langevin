@@ -56,7 +56,7 @@ adj_matrices = [torch.tensor(nx.to_numpy_array(g, nodelist=np.random.permutation
 # Number of measurements
 n_list = [1, 5, 10, 15]
 # Filter parameter distribution
-theta_dist = torch.distributions.Normal(5, 5)
+theta_mean = 1.0
 # Variance of the noise
 sigma_e = 1
 # Known fraction of the matrix
