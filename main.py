@@ -74,9 +74,11 @@ temperature = 0.5
 # Adam parameters
 lr = 0.01
 n_epochs = 1000
+l1_penalty = 0.0
 
 # Save results
-output_file = f"outputs/{graph_type}_{seed}_{lr}_{sigma_e}_{p_unknown}_{temperature}_{n_list}.csv"
+output_file = f"outputs/{graph_type}_{seed}_{lr}_{l1_penalty}_{sigma_e}_{p_unknown}_{temperature}_{n_list}_{theta_mean}.csv"
+theta_dist = torch.distributions.Normal(theta_mean, theta_mean)
 
 def simulate_data(A, n):
     # Filter parameter
@@ -137,7 +139,7 @@ if __name__ == '__main__':
                                                                 theta_prior_dist=theta_dist,
                                                                 sigma_e=sigma_e)
                 adam_est = lang.AdamEstimator(h_theta=ut.heat_diffusion_filter,
-                                              sigma_e=sigma_e, lr=lr, n_iter=n_epochs)
+                                              sigma_e=sigma_e, lr=lr, n_iter=n_epochs, l1_penalty=l1_penalty)
                 
                 for n in n_list:
                     this_X = X[:, :n]
