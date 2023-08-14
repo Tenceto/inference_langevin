@@ -120,18 +120,14 @@ class AdamEstimator:
         A_tilde[~ unknown_mask] = A_nan[~ unknown_mask]
 
         A_tilde.requires_grad_(True)
-
-        theta = 6.679615708013128
-        optimizer = torch.optim.Adam([A_tilde], lr=self.lr)
-
-        # theta = theta_prior_dist.sample().abs()
-        # theta.requires_grad_(True)
-        # optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
+        theta = theta_prior_dist.sample().abs()
+        theta.requires_grad_(True)
+        optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
         loss_hist = []
 
         for _ in range(self.n_iter):
-            optimizer.zero_grad()
             A = self.symmetrize_and_clip(A_tilde, A_nan, unknown_mask)
+            optimizer.zero_grad()
             loss = self.compute_penalized_minus_likelihood(A, X, Y, theta)
             loss.backward()
             optimizer.step()
