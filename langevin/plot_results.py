@@ -68,3 +68,24 @@ def plot_results(filename, legend, figsize=(10, 5), output=None):
     else:
         plt.savefig(output)
 
+def plot_l1_tuning(filename, figsize=(10, 5)):
+    fig, ax = plt.subplots(1, 2, figsize=figsize)
+
+    df = pd.read_csv(filename, sep=";", index_col=0)
+    print("Samples used:", len(df) // (df.num_obs.nunique() * df.l1_penalty.nunique()))
+    df = df.rename(columns={"num_obs": "Number of observations"})
+    df = df.groupby(["Number of observations", "l1_penalty"])[["aucroc", "rel_error"]].mean()
+
+    df["aucroc"].unstack(level=0).plot(ax=ax[0])
+    ax[0].set_xlabel("L1 penalty")
+    ax[0].set_title(r"AUCROC on $\mathbf{A}$")
+    ax[0].set_xscale("log")
+    ax[0].grid()
+
+    df["rel_error"].unstack(level=0).plot(ax=ax[1])
+    ax[1].set_xlabel("L1 penalty")
+    ax[1].set_title(r"Relative error on $\theta$")
+    ax[1].set_xscale("log")
+    ax[1].grid()
+
+    plt.show()
