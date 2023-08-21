@@ -56,7 +56,7 @@ adj_matrices = [torch.tensor(nx.to_numpy_array(g, nodelist=np.random.permutation
 # Number of measurements
 n_list = [1, 5, 10, 15]
 # Filter parameter distribution
-theta_mean = 1.0
+theta_min, theta_max = 0.3, 0.7
 # Variance of the noise
 sigma_e = 1
 # Known fraction of the matrix
@@ -77,8 +77,8 @@ n_epochs = 1000
 l1_penalty = 0.0
 
 # Save results
-output_file = f"outputs/{graph_type}_{seed}_{lr}_{l1_penalty}_{sigma_e}_{p_unknown}_{temperature}_{n_list}_{theta_mean}.csv"
-theta_dist = torch.distributions.Normal(theta_mean, theta_mean)
+output_file = f"outputs/{graph_type}_{seed}_{lr}_{sigma_e}_{p_unknown}_{temperature}_{n_list}_{(theta_min, theta_max)}_{l1_penalty}.csv"
+theta_dist = torch.distributions.Uniform(theta_min, theta_max)
 
 def simulate_data(A, n):
     # Filter parameter
