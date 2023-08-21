@@ -64,9 +64,25 @@ def compute_aucroc(A, A_est, use_idxs=None, return_threshold=False):
         return roc_auc_score(a, a_est), optimal_threshold
     else:
          return roc_auc_score(a, a_est)
+    
+def compute_f1(A, A_est, use_idxs=None):
+    if use_idxs is None:
+        use_idxs = torch.triu_indices(A.shape[0], A.shape[1], offset=1)
+    a = A[use_idxs[0], use_idxs[1]].cpu().numpy()
+    a_est = A_est[use_idxs[0], use_idxs[1]].cpu().numpy()
+    return f1_score(a, a_est > 0.5)
 
 def compute_relative_error(theta, theta_est):
-    return torch.abs(theta - theta_est) / theta
+    # TODO: This is a quick fix because arma_gf_order_one is symmetric w.r.t. alpha and beta
+    # and the estimated coefficients could be swapped
+    if len(theta) == 1:
+         return (torch.abs(theta - theta_est) / theta).mean()
+    elif len(theta) == 2:
+        error_1 = (torch.abs(theta - theta_est) / theta).mean()
+        error_2 = (torch.abs(theta - torch.flip(theta_est, dims=[0])) / theta).mean()
+        return torch.min(error_1, error_2)
+    else:
+        raise ValueError("len(theta) > 2 is not supported yet.")
 
 def create_partially_known_graph(A, p_unknown):
     triu_idxs = torch.triu_indices(A.shape[0], A.shape[0], offset=1)
