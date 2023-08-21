@@ -1,10 +1,13 @@
 import torch
+from inspect import signature
+
 from langevin.utils import compute_aucroc, compute_relative_error
 
 
 class LangevinEstimator:
     def __init__(self, h_theta, A_score_model, sigma_e, theta_prior_dist):
         self.h_theta = h_theta
+        self.num_filter_params = len(signature(h_theta).parameters) - 1
         self.A_score_model = A_score_model
         self.sigma_e = sigma_e
         self.theta_prior_dist = theta_prior_dist
@@ -20,7 +23,7 @@ class LangevinEstimator:
         return grad
 
     def compute_minus_likelihood(self, A, X, Y, theta):
-        F = self.h_theta(A, theta)
+        F = self.h_theta(A, *theta)
         log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
         return - log_likelihood
 
@@ -29,7 +32,7 @@ class LangevinEstimator:
                           projection_method="rounding", clip_A_tilde=False, true_A=None, true_theta=None):
         
         # Initialize theta_tilde
-        theta_tilde = self.theta_prior_dist.sample().abs()
+        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params]).abs()
         # We define this tensor to be used for the optimizer without screwing up the gradients
         theta_grad = theta_tilde.requires_grad_(True)
         optimizer = torch.optim.Adam([theta_grad], lr=adam_lr)
@@ -104,14 +107,14 @@ class LangevinEstimator:
 
 
 class AdamEstimator:
-    def __init__(self, h_theta, sigma_e, lr, l1_penalty, n_iter):
+    def __init__(self, h_theta, sigma_e, lr, n_iter):
         self.h_theta = h_theta
         self.sigma_e = sigma_e
         self.lr = lr
-        self.l1_penalty = l1_penalty
         self.n_iter = n_iter
+        self.num_filter_params = len(signature(h_theta).parameters) - 1
 
-    def adam_estimate(self, A_nan, X, Y, theta_prior_dist):
+    def adam_estimate(self, A_nan, X, Y, theta_prior_dist, l1_penalty):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
@@ -119,8 +122,11 @@ class AdamEstimator:
         unknown_mask = torch.isnan(A_nan)
         A_tilde[~ unknown_mask] = A_nan[~ unknown_mask]
 
+        A_known = A_tilde.clone()
+        unknown_mask = unknown_mask.float()
+
         A_tilde.requires_grad_(True)
-        theta = theta_prior_dist.sample().abs()
+        theta = theta_prior_dist.sample([self.num_filter_params]).abs()
         theta.requires_grad_(True)
         optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
         loss_hist = []
@@ -139,7 +145,7 @@ class AdamEstimator:
     
     def compute_penalized_minus_likelihood(self, A, X, Y, theta):
         A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
-        F = self.h_theta(A_symmetric, theta)
+        F = self.h_theta(A_symmetric, *theta)
         log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
         return - log_likelihood + self.l1_penalty * A_symmetric.abs().sum()
     
