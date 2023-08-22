@@ -6,7 +6,7 @@ from contextlib import redirect_stdout
 import logging
 import traceback
 import sys
-from functools import partial
+from inspect import signature
 import pandas as pd
 import os
 
@@ -18,9 +18,9 @@ import langevin.utils as ut
 torch.set_default_device("cuda")
 torch.set_default_dtype(torch.float64)
 
-logger_file = "langevin.log"
-graph_type = "deezer_ego"
-seed = 13
+logger_file = "langevin_grids.log"
+graph_type = "grids"
+seed = 130
 n_graphs_test = 100
 
 torch.manual_seed(seed)
@@ -32,7 +32,10 @@ model_files = {
     "barabasi": ("edp_gnn/exp/barabasi_albert_diff_nodes/edp-gnn_barabasi_albert_[47, 49, 51, 53]__Jun-13-10-13-20_999031/models/" + 
                  "barabasi_albert_[47, 49, 51, 53]_[0.03, 0.08222222, 0.13444444, 0.18666667, 0.23888889, 0.29111111, 0.34333333, 0.39555556, 0.44777778, 0.5].pth"),
     "barabasi_smaller": ("edp_gnn/exp/barabasi_albert_diff_nodes_small/edp-gnn_barabasi_albert_[15, 17, 19, 21, 23]__Aug-07-15-50-45_2986529/models/" + 
-                         "barabasi_albert_[15, 17, 19, 21, 23]_[0.03, 0.08222222, 0.13444444, 0.18666667, 0.23888889, 0.29111111, 0.34333333, 0.39555556, 0.44777778, 0.5].pth")
+                         "barabasi_albert_[15, 17, 19, 21, 23]_[0.03, 0.08222222, 0.13444444, 0.18666667, 0.23888889, 0.29111111, 0.34333333, 0.39555556, 0.44777778, 0.5].pth"),
+     "grids": ("edp_gnn/exp/grids_dif_nodes/edp-gnn_grids_dif_nodes__Feb-12-22-48-21_4158697/models/" +
+              "grids_dif_nodes_[0.03, 0.08222222, 0.13444444, 0.18666667, 0.23888889, 0.29111111, 0.34333333, 0.39555556, 0.44777778, 0.5].pth")
+
 }
 
 if graph_type == "deezer_ego":
@@ -45,22 +48,33 @@ if graph_type == "deezer_ego":
             raise RuntimeError("Not enough graphs in the dataset.")
     max_nodes = 25
 elif graph_type == "barabasi":
-    graphs = [nx.dual_barabasi_albert_graph(50, 2, 4, 0.5, seed=seed) for _ in range(n_graphs_test)]
+    graphs = [nx.dual_barabasi_albert_graph(np.random.randint(47, 53), 2, 4, 0.5, seed=seed) for _ in range(n_graphs_test)]
     max_nodes = 53
 elif graph_type == "barabasi_smaller":
-    graphs = [nx.dual_barabasi_albert_graph(50, 2, 4, 0.5, seed=seed) for _ in range(n_graphs_test)]
+    graphs = [nx.dual_barabasi_albert_graph(np.random.randint(15, 23), 2, 4, 0.5, seed=seed) for _ in range(n_graphs_test)]
     max_nodes = 23
+elif graph_type == "grids":
+    m_min = 5
+    m_max = 9
+    min_nodes = 40
+    max_nodes = 49
+    min_random_edges = 2
+    max_random_edges = 5
+    seed = 0
+    graphs = [ut.generate_grid_graph(m_min, m_max, min_nodes, max_nodes, min_random_edges, max_random_edges) for _ in range(n_graphs_test)]
+    max_nodes = 49
 
 model_file = model_files[graph_type]
 adj_matrices = [torch.tensor(nx.to_numpy_array(g, nodelist=np.random.permutation(g.nodes()))) for g in graphs]
 # Number of measurements
 n_list = [1, 5, 10, 15]
 # Filter parameter distribution
-theta_min, theta_max = 0.3, 0.7
+theta_min, theta_max = -0.1, 0.1
+h_theta = ut.poly_second_order
 # Variance of the noise
 sigma_e = 1
-# Known fraction of the matrix
-p_unknown = 0.5
+# Unknown fraction of the matrix
+p_unknown = 0.25
 # Prior score model
 model = ut.load_model(model_file)
 
@@ -77,16 +91,19 @@ n_epochs = 1000
 l1_penalty = 0.0
 
 # Save results
-output_file = f"outputs/{graph_type}_{seed}_{lr}_{sigma_e}_{p_unknown}_{temperature}_{n_list}_{(theta_min, theta_max)}_{l1_penalty}.csv"
+output_file = f"outputs/{graph_type}_{seed}_{lr}_{sigma_e}_{p_unknown}_{temperature}_{n_list}_{(theta_min, theta_max)}_{l1_penalty}_{h_theta.__name__}.csv"
 theta_dist = torch.distributions.Uniform(theta_min, theta_max)
+len_theta = len(signature(h_theta).parameters) - 1
 
 def simulate_data(A, n):
     # Filter parameter
-    theta = theta_dist.sample().abs()
+    theta = theta_dist.sample([len_theta])
+    if h_theta == ut.heat_diffusion_filter:
+        theta = theta.abs()
     # Number of nodes
     p = A.shape[0]
     # Dynamics matrix
-    F = ut.heat_diffusion_filter(A, theta)
+    F = h_theta(A, *theta)
     # L = ut.compute_laplacian(A)
     e_dist = torch.distributions.Normal(0, sigma_e)
 
@@ -130,16 +147,16 @@ if __name__ == '__main__':
                 known_idxs = torch.where(~ torch.isnan(A_nan))
                 unknown_idxs = torch.where(torch.isnan(A_nan))
 
-                langevin_posterior_est = lang.LangevinEstimator(h_theta=ut.heat_diffusion_filter,
+                langevin_posterior_est = lang.LangevinEstimator(h_theta=h_theta,
                                                                 A_score_model=A_score_model,
                                                                 theta_prior_dist=theta_dist,
                                                                 sigma_e=sigma_e)
-                langevin_likelihood_est = lang.LangevinEstimator(h_theta=ut.heat_diffusion_filter,
+                langevin_likelihood_est = lang.LangevinEstimator(h_theta=h_theta,
                                                                 A_score_model=A_score_zero,
                                                                 theta_prior_dist=theta_dist,
                                                                 sigma_e=sigma_e)
-                adam_est = lang.AdamEstimator(h_theta=ut.heat_diffusion_filter,
-                                              sigma_e=sigma_e, lr=lr, n_iter=n_epochs, l1_penalty=l1_penalty)
+                adam_est = lang.AdamEstimator(h_theta=h_theta,
+                                              sigma_e=sigma_e, lr=lr, n_iter=n_epochs)
                 
                 for n in n_list:
                     this_X = X[:, :n]
@@ -147,7 +164,8 @@ if __name__ == '__main__':
 
                     np.random.seed((seed + 1) * 3)
 
-                    A_adam, theta_adam, _ = adam_est.adam_estimate(A_nan=A_nan, X=this_X, Y=this_Y, theta_prior_dist=theta_dist)
+                    A_adam, theta_adam, _ = adam_est.adam_estimate(A_nan=A_nan, X=this_X, Y=this_Y, 
+                                                                   theta_prior_dist=theta_dist, l1_penalty=l1_penalty)
                     A_posterior, theta_posterior, _ = langevin_posterior_est.langevin_estimate(A_nan=A_nan, X=this_X, Y=this_Y, 
                                                              sigmas_sq=sigmas ** 2, epsilon=epsilon, 
                                                              temperature=temperature, steps=steps,
@@ -177,10 +195,16 @@ if __name__ == '__main__':
                     this_output["num_obs"] = n
                     # this_output["num_samples"] = num_samples
                     this_output["real_graph"] = A[unknown_idxs[0], unknown_idxs[1]].cpu().numpy().tolist()
-                    this_output["real_theta"] = theta.cpu().item()
+                    if len_theta > 1:
+                        this_output["real_theta"] = theta.cpu().numpy().tolist()
+                    else:
+                        this_output["real_theta"] = theta.cpu().item()
                     for method, A_est in A_all.items():
                         this_output[f"graph_{method}"] = A_est[unknown_idxs[0], unknown_idxs[1]].cpu().numpy().tolist()
-                        this_output[f"theta_{method}"] = theta_all[method].cpu().item()
+                        if len_theta > 1:
+                            this_output[f"theta_{method}"] = theta_all[method].cpu().numpy().tolist()
+                        else:
+                            this_output[f"theta_{method}"] = theta_all[method].cpu().item()
                     output_results.append(this_output)
                 
                     logger.info(f"Finished iteration.")
