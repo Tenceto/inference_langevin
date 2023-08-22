@@ -48,6 +48,22 @@ def heat_diffusion_filter(A, theta):
     return torch.linalg.matrix_exp(- L * theta)
     # return - 0.2 * L - torch.eye(L.shape[0])
 
+def arma_gf_order_one(A, alpha, beta):
+    I = torch.eye(A.shape[0])
+    return (I - beta * A) @ (I - alpha * A).T
+
+def poly_third_order(A, a, b, c, d):
+    # L = compute_laplacian(A)
+    I = torch.eye(A.shape[0])
+    return a * torch.matrix_power(A, 3) + b * torch.matrix_power(A, 2) + c * A + d * I
+    # return a * (L @ L) + b * L + c * I
+
+def poly_second_order(A, a, b, c):
+    # L = compute_laplacian(A)
+    I = torch.eye(A.shape[0])
+    return a * torch.matrix_power(A, 2) + b * A + c * I
+    # return a * (L @ L) + b * L + c * I
+
 def compute_laplacian(A):
     D = torch.diag(A.sum(axis=1))
     return D - A
