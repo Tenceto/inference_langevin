@@ -111,3 +111,34 @@ def create_partially_known_graph(A, p_unknown):
     A_nan[unknown_idxs[0], unknown_idxs[1]] = torch.nan
     A_nan[unknown_idxs[1], unknown_idxs[0]] = torch.nan
     return A_nan
+
+def generate_grid_graph(m_min, m_max, min_nodes, max_nodes, min_random_edges, max_random_edges):
+    m_values = np.arange(m_min, m_max + 1)
+    possible_tuples = list(itertools.product(m_values, m_values))
+    possible_tuples = [(x, y) for x, y in possible_tuples if min_nodes <= x * y <= max_nodes and x <= y]
+    # print(possible_tuples)
+
+    grid_dims = random.choices(possible_tuples, k=1)[0]
+    n_random_edges = np.random.randint(min_random_edges, max_random_edges, 1)
+
+    graph = nx.grid_2d_graph(grid_dims[0], grid_dims[1])
+    A = add_random_edges(nx.to_numpy_array(graph), n_random_edges)
+    return nx.from_numpy_matrix(A)
+
+
+def add_random_edges(A, n_added_edges):
+    if n_added_edges != 0:
+        zero_indices = np.argwhere(A == 0)
+        zero_indices = zero_indices[zero_indices[:, 0] != zero_indices[:, 1]]
+
+        # Choose a random zero to convert to a one
+        idx = np.random.choice(np.arange(zero_indices.shape[0]), n_added_edges, replace=False)
+        row, col = zero_indices[idx, 0], zero_indices[idx, 1]
+
+        # Convert the chosen zero to a one
+        A[row, col] = 1.0
+        A[col, row] = 1.0
+    else:
+        pass
+
+    return A
