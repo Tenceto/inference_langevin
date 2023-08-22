@@ -1,7 +1,7 @@
 import torch
 from inspect import signature
 
-from langevin.utils import compute_aucroc, compute_relative_error
+from langevin.utils import compute_aucroc, compute_relative_error, heat_diffusion_filter
 
 
 class LangevinEstimator:
@@ -32,7 +32,9 @@ class LangevinEstimator:
                           projection_method="rounding", clip_A_tilde=False, true_A=None, true_theta=None):
         
         # Initialize theta_tilde
-        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params]).abs()
+        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params])
+        if self.h_theta == heat_diffusion_filter:
+            theta_tilde = theta_tilde.abs()
         # We define this tensor to be used for the optimizer without screwing up the gradients
         theta_grad = theta_tilde.requires_grad_(True)
         optimizer = torch.optim.Adam([theta_grad], lr=adam_lr)
@@ -78,14 +80,15 @@ class LangevinEstimator:
                 optimizer.step()
                 # TODO: This is only for the exponential filter, because if theta is negative the filter will diverge
                 with torch.no_grad():
-                    theta_tilde = torch.clip(theta_grad.detach().clone(), min=0.0)
+                    if self.h_theta == heat_diffusion_filter:
+                        theta_tilde = torch.clip(theta_grad.detach().clone(), min=0.0)
                     # Compute metrics
                     if compute_metrics:
                         n_step = steps * sigma_i_idx + t
                         metrics["aucroc"][n_step] = compute_aucroc(true_A, A_tilde, use_idxs=unknown_idxs)
                         metrics["relative_error"][n_step] = compute_relative_error(true_theta, theta_tilde)
 
-        return A_tilde, theta_tilde, metrics
+        return A_tilde.detach(), theta_tilde.detach(), metrics
     
     def project_adjacency_matrix(self, A_tilde, projection_method):
         if projection_method == "rounding":
@@ -126,7 +129,9 @@ class AdamEstimator:
         unknown_mask = unknown_mask.float()
 
         A_tilde.requires_grad_(True)
-        theta = theta_prior_dist.sample([self.num_filter_params]).abs()
+        theta = theta_prior_dist.sample([self.num_filter_params])
+        if self.h_theta == heat_diffusion_filter:
+            theta = theta.abs()
         theta.requires_grad_(True)
         optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
         loss_hist = []
