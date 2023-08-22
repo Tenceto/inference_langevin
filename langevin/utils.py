@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import random, itertools
+import networkx as nx
 from easydict import EasyDict as edict
 from edp_gnn.utils.loading_utils import get_score_model
 from sklearn.metrics import f1_score, roc_auc_score, roc_curve
@@ -89,16 +91,22 @@ def compute_f1(A, A_est, use_idxs=None):
     return f1_score(a, a_est > 0.5)
 
 def compute_relative_error(theta, theta_est):
+    if len(theta) != 2:
+         return torch.abs(theta - theta_est / theta).mean()
     # TODO: This is a quick fix because arma_gf_order_one is symmetric w.r.t. alpha and beta
     # and the estimated coefficients could be swapped
-    if len(theta) == 1:
-         return (torch.abs(theta - theta_est) / theta).mean()
-    elif len(theta) == 2:
-        error_1 = (torch.abs(theta - theta_est) / theta).mean()
-        error_2 = (torch.abs(theta - torch.flip(theta_est, dims=[0])) / theta).mean()
-        return torch.min(error_1, error_2)
     else:
-        raise ValueError("len(theta) > 2 is not supported yet.")
+        error_1 = torch.abs(theta - theta_est / theta).mean()
+        error_2 = torch.abs(theta - torch.flip(theta_est, dims=[0]) / theta).mean()
+        return torch.min(error_1, error_2)
+
+def compute_normalized_mse(theta, theta_est):
+    if len(theta) != 2:
+        return torch.sum((theta - theta_est) ** 2) / torch.sum(theta ** 2)
+    else:
+        error_1 = torch.sum((theta - theta_est) ** 2) / torch.sum(theta ** 2)
+        error_2 = torch.sum((theta - torch.flip(theta_est, dims=[0])) ** 2) / torch.sum(theta ** 2)
+        return torch.min(error_1, error_2)
 
 def create_partially_known_graph(A, p_unknown):
     triu_idxs = torch.triu_indices(A.shape[0], A.shape[0], offset=1)
