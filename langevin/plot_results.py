@@ -46,15 +46,15 @@ def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None
         # AUCROC on A estimation if there are no thresholds
         for method in methods:
             results[legend[method]] = results.apply(lambda row: roc_auc_score(row["real_graph"], row[f"graph_{method}"]), axis=1)
-        ax[0].set_title(r"AUCROC on $\mathbf{A}$")
+        ax[0].set_title(r"AUCROC on $\mathbf{A}^{\mathcal{U}}$")
     else:
         # F1-score if thresholds are passed
         for method in methods:
             th = thresholds[method]
             results[legend[method]] = results.apply(lambda row: f1_score(row["real_graph"], row[f"graph_{method}"] > th), axis=1)
-        ax[0].set_title(r"F1-score on $\mathbf{A}$")
+        ax[0].set_title(r"F1-score on $\mathbf{A}^{\mathcal{U}}$")
     results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(marker="o", ax=ax[0])
-    ax[0].set_xlabel("Number of observations")
+    ax[0].set_xlabel(r"$K$")
     ax[0].set_xticks(results.num_obs.unique())
     ax[0].grid()
 
@@ -74,7 +74,7 @@ def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None
             results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
             ax[1].set_title(r"Normalized RMSE on $\pmb{\theta}$")
     results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(marker="o", ax=ax[1])
-    ax[1].set_xlabel("Number of observations")
+    ax[1].set_xlabel(r"$K$")
     ax[1].set_xticks(results.num_obs.unique())
     ax[1].grid()
 
