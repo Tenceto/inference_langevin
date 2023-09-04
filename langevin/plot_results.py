@@ -34,7 +34,7 @@ def plot_theta_results(filename, legend):
     plt.grid()
     plt.show()
 
-def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None, theta_metric="relative_error"):
+def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None, theta_metric="relative_error", pad_inches=0.0):
     fig, ax = plt.subplots(1, 2, figsize=figsize)
     methods = list(legend.keys())
     results = pd.read_csv(filename, index_col=0, sep=";")
@@ -82,7 +82,7 @@ def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None
     if output is None:
         plt.show()
     else:
-        plt.savefig(output)
+        plt.savefig(output, pad_inches=pad_inches, bbox_inches='tight')
 
 def plot_l1_tuning(filename, graph_metric="aucroc", figsize=(10, 5)):
     fig, ax = plt.subplots(1, 2, figsize=figsize)
