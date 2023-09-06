@@ -34,7 +34,11 @@ def plot_theta_results(filename, legend):
     plt.grid()
     plt.show()
 
-def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None, theta_metric="relative_error", pad_inches=0.0):
+def plot_results(filename, legend, styles, figsize=(10, 5), output=None, 
+                 thresholds=None, theta_metric="relative_error", pad_inches=0.0,
+                 markersize=7):
+    assert len(styles) == len(legend), "Number of styles must be equal to number of methods."
+
     fig, ax = plt.subplots(1, 2, figsize=figsize)
     methods = list(legend.keys())
     results = pd.read_csv(filename, index_col=0, sep=";")
@@ -53,7 +57,7 @@ def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None
             th = thresholds[method]
             results[legend[method]] = results.apply(lambda row: f1_score(row["real_graph"], row[f"graph_{method}"] > th), axis=1)
         ax[0].set_title(r"F1-score on $\mathbf{A}^{\mathcal{U}}$")
-    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(marker="o", ax=ax[0])
+    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[0], ms=markersize)
     ax[0].set_xlabel(r"$K$")
     ax[0].set_xticks(results.num_obs.unique())
     ax[0].grid()
@@ -73,7 +77,7 @@ def plot_results(filename, legend, figsize=(10, 5), output=None, thresholds=None
         for method in methods:
             results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
             ax[1].set_title(r"Normalized RMSE on $\pmb{\theta}$")
-    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(marker="o", ax=ax[1])
+    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[1], ms=markersize)
     ax[1].set_xlabel(r"$K$")
     ax[1].set_xticks(results.num_obs.unique())
     ax[1].grid()
