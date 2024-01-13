@@ -131,7 +131,7 @@ def generate_grid_graph(m_min, m_max, min_nodes, max_nodes, min_random_edges, ma
 
     graph = nx.grid_2d_graph(grid_dims[0], grid_dims[1])
     A = add_random_edges(nx.to_numpy_array(graph), n_random_edges)
-    return nx.from_numpy_matrix(A)
+    return nx.from_numpy_array(A)
 
 
 def add_random_edges(A, n_added_edges):
