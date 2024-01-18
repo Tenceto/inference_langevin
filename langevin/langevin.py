@@ -35,9 +35,8 @@ class LangevinEstimator:
         theta_tilde = self.theta_prior_dist.sample([self.num_filter_params])
         if self.h_theta == heat_diffusion_filter:
             theta_tilde = theta_tilde.abs()
-        # We define this tensor to be used for the optimizer without screwing up the gradients
-        theta_grad = theta_tilde.requires_grad_(True)
-        optimizer = torch.optim.Adam([theta_grad], lr=adam_lr)
+        theta_tilde.requires_grad_(True)
+        optimizer = torch.optim.Adam([theta_tilde], lr=adam_lr)
 
         unknown_idxs = torch.where(torch.isnan(torch.triu(A_nan)))
         known_mask = ~ torch.isnan(A_nan)
@@ -52,10 +51,12 @@ class LangevinEstimator:
         A_tilde[known_mask] = A_nan[known_mask]
         A_proj = self.project_adjacency_matrix(A_tilde, projection_method)
 
-        if true_A is not None and true_theta is not None:
-            compute_metrics = True
-            metrics = {"aucroc": torch.empty(steps * len(sigmas_sq)),
-                       "relative_error": torch.empty(steps * len(sigmas_sq))}
+        # if true_A is not None and true_theta is not None:
+        #     compute_metrics = True
+        #     metrics = {"aucroc": torch.empty(steps * len(sigmas_sq)),
+        #                "relative_error": torch.empty(steps * len(sigmas_sq))}
+        # else:
+        #     compute_metrics = False
 
         for sigma_i_idx, sigma_i_sq in enumerate(sigmas_sq):
             alpha = epsilon * sigma_i_sq / sigmas_sq[-1]
@@ -63,7 +64,7 @@ class LangevinEstimator:
                 z = z_dist.sample([1])
                 # Compute the score
                 score_prior_A = self.A_score_model(A_tilde, sigma_i_idx)[unknown_idxs[0], unknown_idxs[1]]
-                score_likelihood_A = self.score_graph_likelihood(A_tilde, X, Y, theta_tilde)[unknown_idxs[0], unknown_idxs[1]]
+                score_likelihood_A = self.score_graph_likelihood(A_tilde, X, Y, theta_tilde.clone().detach())[unknown_idxs[0], unknown_idxs[1]]
                 # Update A
                 A_tilde[unknown_idxs[0], unknown_idxs[1]] = (A_tilde[unknown_idxs[0], unknown_idxs[1]]
                                                              + alpha * (score_prior_A + score_likelihood_A)
@@ -75,20 +76,21 @@ class LangevinEstimator:
 
                 # Update theta
                 optimizer.zero_grad()
-                loss = self.compute_minus_likelihood(A_proj, X, Y, theta_grad)
+                if self.h_theta == heat_diffusion_filter:
+                    # This is only for the exponential filter, because if theta is negative the filter will diverge
+                    loss = self.compute_minus_likelihood(A_proj, X, Y, torch.clip(theta_tilde, min=0.0))
+                else:
+                    loss = self.compute_minus_likelihood(A_proj, X, Y, theta_tilde)
                 loss.backward()
                 optimizer.step()
-                # TODO: This is only for the exponential filter, because if theta is negative the filter will diverge
-                with torch.no_grad():
-                    if self.h_theta == heat_diffusion_filter:
-                        theta_tilde = torch.clip(theta_grad.detach().clone(), min=0.0)
-                    # Compute metrics
-                    if compute_metrics:
-                        n_step = steps * sigma_i_idx + t
-                        metrics["aucroc"][n_step] = compute_aucroc(true_A, A_tilde, use_idxs=unknown_idxs)
-                        metrics["relative_error"][n_step] = compute_relative_error(true_theta, theta_tilde)
+                    
+                    # # Compute metrics
+                    # if compute_metrics:
+                    #     n_step = steps * sigma_i_idx + t
+                    #     metrics["aucroc"][n_step] = compute_aucroc(true_A, A_tilde, use_idxs=unknown_idxs)
+                    #     metrics["relative_error"][n_step] = compute_relative_error(true_theta, theta_tilde)
 
-        return A_tilde.detach(), theta_tilde.detach(), metrics
+        return A_tilde.detach(), theta_tilde.detach()#, metrics
     
     def project_adjacency_matrix(self, A_tilde, projection_method):
         if projection_method == "rounding":
