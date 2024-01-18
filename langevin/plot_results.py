@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.ticker as tick
 import pandas as pd
 from sklearn.metrics import roc_auc_score, f1_score
 
@@ -27,14 +28,14 @@ def plot_theta_results(filename, legend):
         results[col] = results[col].astype(float)
     for method in methods:
         results[legend[method]] = results.apply(lambda row: np.abs(row["real_theta"] - row[f"theta_{method}"]) / row["real_theta"], axis=1)
-    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].median().plot(marker="o")
+    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(marker="o")
     plt.xlabel("Number of observations")
     plt.ylabel("Relative error")
     plt.xticks(results.num_obs.unique())
     plt.grid()
     plt.show()
 
-def plot_results(filename, legend, styles, figsize=(10, 5), output=None, 
+def plot_results(filename, legend, styles, figsize=(10, 5), output=None, x_label="num_obs",
                  thresholds=None, theta_metric="relative_error", pad_inches=0.0,
                  markersize=7):
     assert len(styles) == len(legend), "Number of styles must be equal to number of methods."
@@ -42,7 +43,7 @@ def plot_results(filename, legend, styles, figsize=(10, 5), output=None,
     fig, ax = plt.subplots(1, 2, figsize=figsize)
     methods = list(legend.keys())
     results = pd.read_csv(filename, index_col=0, sep=";")
-    print("Samples used:", len(results) // (results.num_obs.nunique()))
+    print("Samples used:", len(results) // (results[x_label].nunique()))
 
     for col in ["real_graph"] + [f"graph_{method}" for method in methods]:
         results[col] = results[col].apply(lambda x: np.array(eval(x)))
@@ -57,10 +58,7 @@ def plot_results(filename, legend, styles, figsize=(10, 5), output=None,
             th = thresholds[method]
             results[legend[method]] = results.apply(lambda row: f1_score(row["real_graph"], row[f"graph_{method}"] > th), axis=1)
         ax[0].set_title(r"F1-score on $\mathbf{A}^{\mathcal{U}}$")
-    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[0], ms=markersize)
-    ax[0].set_xlabel(r"$K$")
-    ax[0].set_xticks(results.num_obs.unique())
-    ax[0].grid()
+    results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[0], ms=markersize)
 
     # Relative error on theta estimation
     try:
@@ -77,10 +75,18 @@ def plot_results(filename, legend, styles, figsize=(10, 5), output=None,
         for method in methods:
             results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
             ax[1].set_title(r"Normalized RMSE on $\pmb{\theta}$")
-    results.groupby("num_obs")[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[1], ms=markersize)
-    ax[1].set_xlabel(r"$K$")
-    ax[1].set_xticks(results.num_obs.unique())
-    ax[1].grid()
+    results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[1], ms=markersize)
+
+    for a in ax:
+        a.set_xscale("log")
+        a.get_xaxis().set_major_formatter(tick.ScalarFormatter())
+        if x_label == "num_obs":
+            a.set_xlabel(r"$K$")
+        elif x_label == "obs_ratio":
+            a.set_xlabel(r"$K/N$")
+        a.set_xticks(results[x_label].unique(), labels=results[x_label].unique())
+        a.set_xticks([], minor=True)
+        a.grid()
 
     plt.tight_layout()
     if output is None:
