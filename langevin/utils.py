@@ -7,6 +7,13 @@ from edp_gnn.utils.loading_utils import get_score_model
 from sklearn.metrics import f1_score, roc_auc_score, roc_curve
 
 
+def threshold_probabilities(probs, margin):
+    pred = probs.detach().clone()
+    pred[pred >= (0.5 + margin)] = 1
+    pred[pred <= (0.5 - margin)] = 0
+    pred[(pred != 0) & (pred != 1)] = torch.nan
+    return pred
+
 def load_model(model_file):
     ckp = torch.load(model_file)
     model_config = edict(ckp['config'])
