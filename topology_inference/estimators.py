@@ -1,7 +1,7 @@
 import torch
 from inspect import signature
 
-from langevin.utils import compute_aucroc, compute_relative_error, heat_diffusion_filter
+from topology_inference.utils import compute_aucroc, compute_relative_error, heat_diffusion_filter
 
 
 class LangevinEstimator:
