@@ -10,8 +10,8 @@ from inspect import signature
 import pandas as pd
 import os
 
-from langevin import langevin as lang
-import langevin.utils as ut
+import topology_inference.estimators  as est
+import topology_inference.utils as ut
 
 # np.set_printoptions(suppress=True)
 
@@ -147,15 +147,15 @@ if __name__ == '__main__':
                 known_idxs = torch.where(~ torch.isnan(A_nan))
                 unknown_idxs = torch.where(torch.isnan(A_nan))
 
-                langevin_posterior_est = lang.LangevinEstimator(h_theta=h_theta,
+                langevin_posterior_est = est.LangevinEstimator(h_theta=h_theta,
                                                                 A_score_model=A_score_model,
                                                                 theta_prior_dist=theta_dist,
                                                                 sigma_e=sigma_e)
-                langevin_likelihood_est = lang.LangevinEstimator(h_theta=h_theta,
+                langevin_likelihood_est = est.LangevinEstimator(h_theta=h_theta,
                                                                 A_score_model=A_score_zero,
                                                                 theta_prior_dist=theta_dist,
                                                                 sigma_e=sigma_e)
-                adam_est = lang.AdamEstimator(h_theta=h_theta,
+                adam_est = est.AdamEstimator(h_theta=h_theta,
                                               sigma_e=sigma_e, lr=lr, n_iter=n_epochs)
                 
                 for n in n_list:
