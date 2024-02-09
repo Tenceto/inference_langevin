@@ -10,7 +10,7 @@ from inspect import signature
 import pandas as pd
 import os
 
-import topology_inference.estimators  as est
+import topology_inference.estimators_pairs  as est
 import topology_inference.utils as ut
 
 # np.set_printoptions(suppress=True)
