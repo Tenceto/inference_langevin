@@ -1,7 +1,9 @@
 import torch
+import cvxpy as cp
+import numpy as np
 from inspect import signature
 
-from topology_inference.utils import compute_aucroc, compute_relative_error, heat_diffusion_filter
+from topology_inference.utils import heat_diffusion_filter
 
 
 class LangevinEstimator:
@@ -185,3 +187,156 @@ class AdamEstimator:
         A = torch.triu(A) + torch.triu(A, diagonal=1).T
         A = torch.clip(A, 0.0, 1.0)
         return A
+
+
+class SpectralTemplates:
+    """
+    Code copied from the original repository of the paper "pyGSL: A Graph Structure Learning Toolkit"
+    by Max Wasserman and Gonzalo Mateos.
+    """
+    def __init__(self):
+        pass
+
+    def spectral_templates(self, emp_cov: np.ndarray, emp_cov_eigenvectors: np.ndarray, epsilon_range=(0, 2),
+                           binary_search_iters: int=5,
+                           tau=1, delta=.001, return_on_failed_iter_rew: bool=True,
+                           num_iter_reweight_refinements:int = 3):
+        N = emp_cov.shape[-1]
+        st_prob = self.spectral_template_problem(N, spec_temps_in=emp_cov_eigenvectors)
+        st_param_dict, st_variable_dict = self._problem_dicts(st_prob)
+
+        #############
+        # Perform Binary Search on epsilon value. Resolve convex Spectral Templates problem for each epsilon.
+        # Find smallest epsilon which allows a solution.
+        epsilon_low, epsilon_high = epsilon_range
+        # S_prev = solution to spectral temaples problem with smallest working epsilon
+        smallest_working_epsilon, S_prev = None, None
+        for i in range(binary_search_iters):
+            epsilon = (epsilon_low + epsilon_high)/2
+            st_param_dict['epsilon'].value = epsilon
+            try:
+                st_prob.solve(solver='MOSEK', warm_start=True, verbose=False)
+                if st_prob.status == 'optimal':
+                    worked = True
+                    print(f'\tSpecTemp: {i}th iteration took: {st_prob.solver_stats.solve_time:.4f} s')#,  {st_prob.solver_stats.num_iters} iterations')
+                else:
+                    # infeasible, unbounded, etc
+                    worked = False
+                    print(f'\t{i}th binary search iteration failed: {st_prob.status}')
+            except cp.error.SolverError as e:
+                worked = False
+                print(f'\t{i}th binary search iteration threw CVX exception: {e}')
+            except Exception as e:
+                worked = False
+                print(f'\t{i}th binary search iteration threw OTHER exception: {e}')
+
+            if worked:
+                # worked, try smaller epsilon => smaller radius of Euclidean ball around S_hat
+                epsilon_high = epsilon
+                smallest_working_epsilon = epsilon
+                S_prev = st_variable_dict['S'].value
+            else:
+                # didn't work, try larger epsilon => larger radius of Euclidean ball around S_hat
+                epsilon_low = epsilon
+
+        if S_prev is None:
+            raise ValueError(f'\tNone of the epsilons in {epsilon_range} worked')
+
+        #############
+        # now apply iterative reweighting scheme a few times to clean up small edge weights.
+        iter_rewt_prob = self.iterative_reweighted_problem(N=N, eps=st_param_dict['epsilon'].value, spec_temps_in=emp_cov_eigenvectors)
+        iter_rewt_param_dict, iter_rewt_variable_dict = self._problem_dicts(iter_rewt_prob)
+
+        worked = False
+        for i in range(num_iter_reweight_refinements):
+            iter_rewt_param_dict['weights'].value = self.compute_weights(S_prev=S_prev, tau=tau, delta=delta)
+            # include try/except here for when solver fails. Better printing.
+            try:
+                iter_rewt_prob.solve(solver='MOSEK', warm_start=True, verbose=False)
+                if iter_rewt_prob.status == 'optimal':
+                    worked = True
+                    print(f'\tIter Refine: {i}th iteration took: {iter_rewt_prob.solver_stats.solve_time:.4f} s')#,  {iter_rewt_prob.solver_stats.num_iters} iterations')
+                else:
+                    # infeasible, unbounded, etc
+                    worked = False
+                    print(f'\t{i}th Iterative Reweighting iteration failed: {iter_rewt_prob.status}')
+
+            except cp.error.SolverError as e:
+                worked = False
+                print(f'\t{i}th Iterative Reweighting iteration threw CVX exception: {e}')
+            except Exception as e:
+                worked = False
+                print(f'\t{i}th Iterative Reweighting iteration threw OTHER exception: {e}')
+
+            if worked:
+                S_prev = iter_rewt_variable_dict['S'].value
+            elif return_on_failed_iter_rew:
+                if i>0:
+                    print(f'\t\tReturning {i - 1} Iterative Reweighting soln')
+                else:
+                    print(f'\t\tReturning Spectral Templates solution with NO Iterative Reweighting applied')
+
+                return S_prev, smallest_working_epsilon, (i+1)
+
+            else:
+                raise ValueError(f'Iterative Reweighting Failed: '
+                                f'To return last valid solution, set return_on_failed_iter_rew <- True')
+
+        return S_prev, smallest_working_epsilon, num_iter_reweight_refinements
+
+    def spectral_template_problem(self, N, eps=None, spec_temps_in=None):
+        # Define Variables and Parameters
+        S_hat = cp.Variable((N, N), name='S_hat', symmetric=True)
+        S = cp.Variable((N, N), name='S', symmetric=True)
+        lam = cp.Variable(N)
+        epsilon = cp.Parameter(nonneg=True, name='epsilon', value=eps)# if (eps != None) else None)
+        spec_temps = cp.Parameter((N, N), 'eigenvectors', value=spec_temps_in)# if (spec_temps_in != None) else None)
+
+        # Define objective and constraints
+        objective = cp.Minimize(cp.sum(cp.abs(S)))  # cp.Minimize(cp.norm(S.flatten(), 1)) # CHECK CORRECTNESS: standard way to do sum of abs vals?
+        constraints = [S_hat == spec_temps @ cp.diag(lam) @ spec_temps.T,
+                    S >= 0,
+                    cp.abs(cp.diag(S)) <= 1e-6,
+                    S @ np.ones(N) >= 1,
+                    cp.norm(S - S_hat, 'fro') <= epsilon]
+
+        # Solve
+        prob = cp.Problem(objective=objective, constraints=constraints)
+        #assert prob.is_dcp(dpp=True), f'problem must comply with DPP rules for fast resolving.'
+        return prob
+    
+    # for iterative_reweighted procedure
+    def compute_weights(self, S_prev, tau, delta):
+        ones_mat = np.ones_like(S_prev)
+        weights_val = np.divide(tau * ones_mat, np.abs(S_prev) + delta * ones_mat)
+        return weights_val
+    
+    def iterative_reweighted_problem(self, N, eps, spec_temps_in=None):
+        # Define Variables and Parameters
+        S_hat = cp.Variable((N, N), name='S_hat', symmetric=True) #this differs from matlab code. Dis he make mistake?
+        S = cp.Variable((N, N), name='S', symmetric=True)
+        lam = cp.Variable(N)
+        epsilon = cp.Parameter(name='epsilon', nonneg=True, value=eps)
+        spec_temps = cp.Parameter((N, N), name='eigenvectors', value=spec_temps_in)
+
+        weights = cp.Parameter((N, N), name='weights', nonneg=True)
+
+        # Define objective and constraints
+        objective = cp.Minimize(cp.sum(cp.multiply(weights, S))) # elementwise multiply by weights
+        constraints = [S_hat == spec_temps @ cp.diag(lam) @ spec_temps.T,
+                    S >= 0,
+                    cp.abs(cp.diag(S)) <= 1e-6,
+                    S @ np.ones(N) >= 1,
+                    cp.norm(S - S_hat, 'fro') <= epsilon]
+
+        # Solve
+        prob = cp.Problem(objective=objective, constraints=constraints)
+        #assert prob.is_dcp(dpp=True), f'problem must comply with DPP rules for fast resolving.'
+        return prob
+    
+    # getter function to access cvxpy problem parameters and attributes
+    @staticmethod
+    def _problem_dicts(problem):
+        param_dict = {x.name(): x for x in problem.parameters()}
+        variable_dict = {x.name(): x for x in problem.variables()}
+        return param_dict, variable_dict
