@@ -5,34 +5,35 @@ from topology_inference.utils import compute_aucroc, compute_relative_error, hea
 
 
 class LangevinEstimator:
-    def __init__(self, h_theta, A_score_model, sigma_e, theta_prior_dist):
+    def __init__(self, h_theta, A_score_model, theta_prior_dist):
         self.h_theta = h_theta
         self.num_filter_params = len(signature(h_theta).parameters) - 1
         self.A_score_model = A_score_model
-        self.sigma_e = sigma_e
+        # self.sigma_e = sigma_e
         self.theta_prior_dist = theta_prior_dist
         self.metrics = None
 
-    def score_graph_likelihood(self, A, Y, theta):
+    def score_graph_likelihood(self, A, Y, S, theta):
         A = A.clone().requires_grad_(True)
         # We only need the upper triangular part of A to account
         # for the symmetry of the matrix, so that the gradient is correct
         log_likelihood = - self.compute_minus_likelihood(torch.triu(A) + torch.triu(A, diagonal=1).T, 
-                                                         Y, theta)
+                                                         Y, S, theta)
         grad = torch.autograd.grad(log_likelihood, A)[0]
         return grad
 
-    def compute_minus_likelihood(self, A, Y, theta):
+    def compute_minus_likelihood(self, A, Y, S, theta):
         k = Y.shape[1]
         F = self.h_theta(A, *theta)
         Omega = torch.linalg.inv(F @ F.T)
-        S = (Y @ Y.T) / k
         log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
         return - log_likelihood
 
     def langevin_estimate(self, A_nan, Y, 
                           sigmas_sq, epsilon, temperature, steps, adam_lr,
-                          projection_method="rounding", clip_A_tilde=False, true_A=None, true_theta=None):
+                          projection_method="rounding", clip_A_tilde=False, 
+                          # TODO: Remove these parameters
+                          true_A=None, true_theta=None):
         
         # Initialize theta_tilde
         theta_tilde = self.theta_prior_dist.sample([self.num_filter_params])
@@ -61,13 +62,16 @@ class LangevinEstimator:
         # else:
         #     compute_metrics = False
 
+        k = Y.shape[1]
+        S = (Y @ Y.T) / k
+
         for sigma_i_idx, sigma_i_sq in enumerate(sigmas_sq):
             alpha = epsilon * sigma_i_sq / sigmas_sq[-1]
             for t in range(steps):
                 z = z_dist.sample([1])
                 # Compute the score
                 score_prior_A = self.A_score_model(A_tilde, sigma_i_idx)[unknown_idxs[0], unknown_idxs[1]]
-                score_likelihood_A = self.score_graph_likelihood(A_tilde, Y, theta_tilde.clone().detach())[unknown_idxs[0], unknown_idxs[1]]
+                score_likelihood_A = self.score_graph_likelihood(A_tilde, Y, S, theta_tilde.clone().detach())[unknown_idxs[0], unknown_idxs[1]]
                 # Update A
                 A_tilde[unknown_idxs[0], unknown_idxs[1]] = (A_tilde[unknown_idxs[0], unknown_idxs[1]]
                                                              + alpha * (score_prior_A + score_likelihood_A)
@@ -81,9 +85,9 @@ class LangevinEstimator:
                 optimizer.zero_grad()
                 if self.h_theta == heat_diffusion_filter:
                     # This is only for the exponential filter, because if theta is negative the filter will diverge
-                    loss = self.compute_minus_likelihood(A_proj, Y, torch.clip(theta_tilde, min=0.0))
+                    loss = self.compute_minus_likelihood(A_proj, Y, S, torch.clip(theta_tilde, min=0.0))
                 else:
-                    loss = self.compute_minus_likelihood(A_proj, Y, theta_tilde)
+                    loss = self.compute_minus_likelihood(A_proj, Y, S, theta_tilde)
                 loss.backward()
                 optimizer.step()
                     
@@ -115,14 +119,15 @@ class LangevinEstimator:
 
 
 class AdamEstimator:
-    def __init__(self, h_theta, sigma_e, lr, n_iter):
+    def __init__(self, h_theta, theta_prior_dist, lr, n_iter):
         self.h_theta = h_theta
-        self.sigma_e = sigma_e
+        self.theta_prior_dist = theta_prior_dist
+        # self.sigma_e = sigma_e
         self.lr = lr
         self.n_iter = n_iter
         self.num_filter_params = len(signature(h_theta).parameters) - 1
 
-    def adam_estimate(self, A_nan, X, Y, theta_prior_dist, l1_penalty):
+    def adam_estimate(self, A_nan, Y, l1_penalty):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
@@ -134,21 +139,21 @@ class AdamEstimator:
         unknown_mask = unknown_mask.float()
 
         A_tilde.requires_grad_(True)
-        theta = theta_prior_dist.sample([self.num_filter_params])
+        theta = self.theta_prior_dist.sample([self.num_filter_params])
         if self.h_theta == heat_diffusion_filter:
             theta = theta.abs()
         theta.requires_grad_(True)
         optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
         loss_hist = []
 
+        k = Y.shape[1]
+        S = (Y @ Y.T) / k
+
         for _ in range(self.n_iter):
             A = self.symmetrize_and_clip(A_tilde)
             optimizer.zero_grad()
-            loss = self.compute_penalized_minus_likelihood(A,
-                                                              X, Y,
-                                                                theta,
-                                                                l1_penalty,
-                                                                unknown_mask, A_known)
+            loss = self.compute_penalized_minus_likelihood(A, Y, S, theta,
+                                                           l1_penalty, unknown_mask, A_known)
             loss.backward()
             optimizer.step()
             loss_hist.append(loss.item())
@@ -157,20 +162,24 @@ class AdamEstimator:
         
         return A, theta.detach(), loss_hist
     
-    def compute_penalized_minus_likelihood(self, A, X, Y, theta, l1_penalty, unknown_mask, A_known):
+    def compute_penalized_minus_likelihood(self, A, Y, S, theta, l1_penalty, unknown_mask, A_known):
         A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
         A_symmetric = A * unknown_mask + A_known * (1 - unknown_mask)
+        k = Y.shape[1]
         F = self.h_theta(A_symmetric, *theta)
-        log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
+        Omega = torch.linalg.inv(F @ F.T)
+        log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
         return - log_likelihood + l1_penalty * A_symmetric.norm(p=1)
         # return l1_penalty * A_symmetric.norm(p=1)
     
-    def compute_minus_likelihood(self, A, X, Y, theta, unknown_mask, A_known):
-        A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
-        A_symmetric = A * unknown_mask + A_known * (1 - unknown_mask)
-        F = self.h_theta(A_symmetric, *theta)
-        log_likelihood = - 1 / (2 * self.sigma_e ** 2) * (torch.linalg.norm(Y - F @ X, dim=0) ** 2).sum()
-        return - log_likelihood
+    # def compute_minus_likelihood(self, A, Y, S, theta, unknown_mask, A_known):
+    #     A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
+    #     A_symmetric = A * unknown_mask + A_known * (1 - unknown_mask)
+    #     k = Y.shape[1]
+    #     F = self.h_theta(A_symmetric, *theta)
+    #     Omega = torch.linalg.inv(F @ F.T)
+    #     log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
+    #     return - log_likelihood
     
     def symmetrize_and_clip(self, A):
         A = torch.triu(A) + torch.triu(A, diagonal=1).T
