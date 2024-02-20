@@ -200,7 +200,8 @@ class SpectralTemplates:
     def spectral_templates(self, emp_cov: np.ndarray, emp_cov_eigenvectors: np.ndarray, epsilon_range=(0, 2),
                            binary_search_iters: int=5,
                            tau=1, delta=.001, return_on_failed_iter_rew: bool=True,
-                           num_iter_reweight_refinements:int = 3):
+                           num_iter_reweight_refinements: int=3,
+                           verbose: bool=False):
         N = emp_cov.shape[-1]
         st_prob = self.spectral_template_problem(N, spec_temps_in=emp_cov_eigenvectors)
         st_param_dict, st_variable_dict = self._problem_dicts(st_prob)
@@ -218,17 +219,21 @@ class SpectralTemplates:
                 st_prob.solve(solver='MOSEK', warm_start=True, verbose=False)
                 if st_prob.status == 'optimal':
                     worked = True
-                    print(f'\tSpecTemp: {i}th iteration took: {st_prob.solver_stats.solve_time:.4f} s')#,  {st_prob.solver_stats.num_iters} iterations')
+                    if verbose:
+                        print(f'\tSpecTemp: {i}th iteration took: {st_prob.solver_stats.solve_time:.4f} s')#,  {st_prob.solver_stats.num_iters} iterations')
                 else:
                     # infeasible, unbounded, etc
                     worked = False
-                    print(f'\t{i}th binary search iteration failed: {st_prob.status}')
+                    if verbose:
+                        print(f'\t{i}th binary search iteration failed: {st_prob.status}')
             except cp.error.SolverError as e:
                 worked = False
-                print(f'\t{i}th binary search iteration threw CVX exception: {e}')
+                if verbose:
+                    print(f'\t{i}th binary search iteration threw CVX exception: {e}')
             except Exception as e:
                 worked = False
-                print(f'\t{i}th binary search iteration threw OTHER exception: {e}')
+                if verbose:
+                    print(f'\t{i}th binary search iteration threw OTHER exception: {e}')
 
             if worked:
                 # worked, try smaller epsilon => smaller radius of Euclidean ball around S_hat
@@ -255,34 +260,51 @@ class SpectralTemplates:
                 iter_rewt_prob.solve(solver='MOSEK', warm_start=True, verbose=False)
                 if iter_rewt_prob.status == 'optimal':
                     worked = True
-                    print(f'\tIter Refine: {i}th iteration took: {iter_rewt_prob.solver_stats.solve_time:.4f} s')#,  {iter_rewt_prob.solver_stats.num_iters} iterations')
+                    if verbose:
+                        print(f'\tIter Refine: {i}th iteration took: {iter_rewt_prob.solver_stats.solve_time:.4f} s')#,  {iter_rewt_prob.solver_stats.num_iters} iterations')
                 else:
                     # infeasible, unbounded, etc
                     worked = False
-                    print(f'\t{i}th Iterative Reweighting iteration failed: {iter_rewt_prob.status}')
+                    if verbose:
+                        print(f'\t{i}th Iterative Reweighting iteration failed: {iter_rewt_prob.status}')
 
             except cp.error.SolverError as e:
                 worked = False
-                print(f'\t{i}th Iterative Reweighting iteration threw CVX exception: {e}')
+                if verbose:
+                    print(f'\t{i}th Iterative Reweighting iteration threw CVX exception: {e}')
             except Exception as e:
                 worked = False
-                print(f'\t{i}th Iterative Reweighting iteration threw OTHER exception: {e}')
+                if verbose:
+                    print(f'\t{i}th Iterative Reweighting iteration threw OTHER exception: {e}')
 
             if worked:
                 S_prev = iter_rewt_variable_dict['S'].value
             elif return_on_failed_iter_rew:
                 if i>0:
-                    print(f'\t\tReturning {i - 1} Iterative Reweighting soln')
+                    if verbose:
+                        print(f'\t\tReturning {i - 1} Iterative Reweighting soln')
                 else:
-                    print(f'\t\tReturning Spectral Templates solution with NO Iterative Reweighting applied')
+                    if verbose:
+                        print(f'\t\tReturning Spectral Templates solution with NO Iterative Reweighting applied')
 
                 return S_prev, smallest_working_epsilon, (i+1)
 
             else:
                 raise ValueError(f'Iterative Reweighting Failed: '
                                 f'To return last valid solution, set return_on_failed_iter_rew <- True')
-
+            
         return S_prev, smallest_working_epsilon, num_iter_reweight_refinements
+    
+    @staticmethod
+    def lstsq_coefficients(S_espectral, Cx, theta_length, threshold=0.5):
+        A_spectral = (S_espectral.abs() > threshold).double()
+        lam, V = torch.linalg.eigh(A_spectral)
+        Cx_diag = torch.diag(V.T @ Cx @ V)
+        a = torch.ones(len(lam), theta_length).cuda()
+        for i in range(theta_length):
+            a[:, i] = lam ** (theta_length - i - 1)
+        b = Cx_diag.sqrt()
+        return torch.linalg.lstsq(a, b).solution
 
     def spectral_template_problem(self, N, eps=None, spec_temps_in=None):
         # Define Variables and Parameters
