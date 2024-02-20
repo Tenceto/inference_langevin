@@ -41,9 +41,10 @@ class BootstrapAdamInitializer:
             A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'))
             A_nan.fill_diagonal_(0.0)
             # Bootstrap the data
-            Y_bootstrap = Y[torch.randint(0, Y.shape[0], (Y.shape[0],))]
+            idx_bootstrap = torch.randint(0, Y.shape[1], (Y.shape[1],))
+            Y_bootstrap = Y[:, idx_bootstrap]
             # Run the Adam estimator for a fully unknown graph
-            A_adam, theta_adam, _ = self.adam_est.adam_estimate(A_nan=A_nan, Y=Y_bootstrap, l1_penalty=l1_penalty)
+            A_adam, theta_adam, _ = self.adam_est.adam_estimate(A_nan=A_nan, Y=Y_bootstrap.to(A_nan.device), l1_penalty=l1_penalty)
             A_bootstrap_est.append(A_adam)
             theta_bootstrap_est.append(theta_adam)
 
