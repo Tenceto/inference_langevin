@@ -17,7 +17,7 @@ class AdamInitializer:
             A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'))
             A_nan.fill_diagonal_(0.0)
             # Run the Adam estimator for a fully unknown graph
-            A_adam, theta_adam, _ = self.adam_est.adam_estimate(A_nan=A_nan, Y=Y, l1_penalty=l1_penalty)
+            A_adam, theta_adam, _ = self.adam_est.adam_estimate(A_nan=A_nan, Y=Y.to(A_nan.device), l1_penalty=l1_penalty)
             A_adam_est.append(A_adam)
             theta_adam_est.append(theta_adam)
 

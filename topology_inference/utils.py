@@ -69,7 +69,7 @@ def poly_third_order(A, a, b, c, d):
 
 def poly_second_order(A, a, b, c):
     # L = compute_laplacian(A)
-    I = torch.eye(A.shape[0])
+    I = torch.eye(A.shape[0]).to(A.device)
     return a * torch.matrix_power(A, 2) + b * A + c * I
     # return a * (L @ L) + b * L + c * I
 
