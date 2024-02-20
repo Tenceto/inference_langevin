@@ -2,10 +2,24 @@ import numpy as np
 import torch
 import random, itertools
 import networkx as nx
+from inspect import signature
 from easydict import EasyDict as edict
 from edp_gnn.utils.loading_utils import get_score_model
 from sklearn.metrics import f1_score, roc_auc_score, roc_curve
+def simulate_data_white_noise(A, k, theta_dist, h_theta):
+    len_theta = len(signature(h_theta).parameters) - 1
+    # Filter parameter
+    theta = theta_dist.sample([len_theta])
+    if h_theta == ut.heat_diffusion_filter:
+        theta = theta.abs()
 
+    F = h_theta(A, *theta).to(A.device)
+    # Generate white noise of unit variance
+    X = torch.randn(A.shape[0], k).to(A.device).double()
+    # Pass through the filter
+    Y = F @ X
+
+    return Y, theta
 
 def threshold_probabilities(probs, margin):
     pred = probs.detach().clone()
