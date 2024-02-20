@@ -6,6 +6,16 @@ from inspect import signature
 from easydict import EasyDict as edict
 from edp_gnn.utils.loading_utils import get_score_model
 from sklearn.metrics import f1_score, roc_auc_score, roc_curve
+import topology_inference.utils as ut
+
+
+def compute_initalizer_metrics(pred, true_supp):
+    idx_nan = np.isnan(pred)
+    prop_unknown = round(np.sum(idx_nan) / len(idx_nan), 2)
+    prop_known_correct = round(np.sum(pred[~ idx_nan] == true_supp[~ idx_nan]) / len(pred[~ idx_nan]), 2)
+    prop_correct = round(np.sum(pred == true_supp) / len(pred), 2)
+    return prop_unknown, prop_known_correct, prop_correct
+
 def simulate_data_white_noise(A, k, theta_dist, h_theta):
     len_theta = len(signature(h_theta).parameters) - 1
     # Filter parameter
