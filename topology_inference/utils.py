@@ -11,7 +11,7 @@ def threshold_probabilities(probs, margin):
     pred = probs.detach().clone()
     pred[pred >= (0.5 + margin)] = 1
     pred[pred <= (0.5 - margin)] = 0
-    pred[(pred != 0) & (pred != 1)] = torch.nan
+    pred[(pred != 0) & (pred != 1)] = float("nan")
     return pred
 
 def load_model(model_file):
