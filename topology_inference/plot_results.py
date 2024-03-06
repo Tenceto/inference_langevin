@@ -35,15 +35,22 @@ def plot_theta_results(filename, legend):
     plt.grid()
     plt.show()
 
-def plot_results(filename, legend, styles, figsize=(10, 5), output=None, x_label="num_obs",
-                 thresholds=None, theta_metric="relative_error", pad_inches=0.0,
-                 markersize=7):
-    assert len(styles) == len(legend), "Number of styles must be equal to number of methods."
+def plot_results(filename, legend, styles=None, figsize=(10, 5), output=None, x_label="num_obs",
+                 thresholds=None, theta_metric="relative_error", pad_inches=0.0, agg_fun="mean",
+                 colors=None,
+                 markersize=7, log_scale=False):
+    if styles is not None:
+        assert len(styles) == len(legend), "Number of styles must be equal to number of methods."
+    else:
+        styles = ["o-", "s-", "v-", "p-", "d-", "h-", "x-", "+-", "*-"]
 
     fig, ax = plt.subplots(1, 2, figsize=figsize)
     methods = list(legend.keys())
     results = pd.read_csv(filename, index_col=0, sep=";")
     print("Samples used:", len(results) // (results[x_label].nunique()))
+
+    # Some results are nan, we remove them for the plot
+    results = results[~ results["theta_spectral"].str.contains("nan")]
 
     for col in ["real_graph"] + [f"graph_{method}" for method in methods]:
         results[col] = results[col].apply(lambda x: np.array(eval(x)))
@@ -58,7 +65,10 @@ def plot_results(filename, legend, styles, figsize=(10, 5), output=None, x_label
             th = thresholds[method]
             results[legend[method]] = results.apply(lambda row: f1_score(row["real_graph"], row[f"graph_{method}"] > th), axis=1)
         ax[0].set_title(r"F1-score on $\mathbf{A}^{\mathcal{U}}$")
-    results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[0], ms=markersize)
+    if agg_fun == "mean":
+        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[0], ms=markersize, color=colors.values())
+    elif agg_fun == "median":
+        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[0], ms=markersize, color=colors.values())
 
     # Relative error on theta estimation
     try:
@@ -75,18 +85,28 @@ def plot_results(filename, legend, styles, figsize=(10, 5), output=None, x_label
         for method in methods:
             results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
             ax[1].set_title(r"Normalized RMSE on $\pmb{\theta}$")
-    results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[1], ms=markersize)
+    if agg_fun == "mean":
+        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
+    elif agg_fun == "median":
+        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
+    # Remove the legend from both plots
+    for a in ax:
+        a.get_legend().remove()
+    # Add a unique legend to the side of both plots
+    ax[1].legend(legend.values(), loc='center left', bbox_to_anchor=(1, 0.5))
 
     for a in ax:
-        a.set_xscale("log")
-        a.get_xaxis().set_major_formatter(tick.ScalarFormatter())
         if x_label == "num_obs":
             a.set_xlabel(r"$K$")
         elif x_label == "obs_ratio":
             a.set_xlabel(r"$K/N$")
+        if log_scale:
+            a.set_xscale("log")
+        a.get_xaxis().set_major_formatter(tick.ScalarFormatter())
         a.set_xticks(results[x_label].unique(), labels=results[x_label].unique())
         a.set_xticks([], minor=True)
-        a.grid()
+        # Set only horizontal grid
+        a.grid(axis="y")
 
     plt.tight_layout()
     if output is None:
