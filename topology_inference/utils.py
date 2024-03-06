@@ -19,7 +19,7 @@ def compute_initalizer_metrics(pred, true_supp):
 def simulate_data_white_noise(A, k, theta_dist, h_theta):
     len_theta = len(signature(h_theta).parameters) - 1
     # Filter parameter
-    theta = theta_dist.sample([len_theta])
+    theta = theta_dist.sample([len_theta]).to(A.device)
     if h_theta == ut.heat_diffusion_filter:
         theta = theta.abs()
 
@@ -48,14 +48,14 @@ def load_model(model_file):
 
     return model
 
-def score_edp_wrapper(model, nodes, num_sigmas, max_nodes):
-	node_flag_init = torch.tensor([1, 0], device="cuda")
-	node_flags = node_flag_init.repeat_interleave(torch.tensor([nodes, max_nodes - nodes], device="cuda"))
+def score_edp_wrapper(model, nodes, num_sigmas, max_nodes, device="cuda"):
+	node_flag_init = torch.tensor([1, 0], device=device)
+	node_flags = node_flag_init.repeat_interleave(torch.tensor([nodes, max_nodes - nodes], device=device))
 	node_flags = node_flags.repeat(num_sigmas, 1)
-	x = torch.zeros((num_sigmas, max_nodes, 1), device="cuda")
+	x = torch.zeros((num_sigmas, max_nodes, 1), device=device)
 
 	def score_fun(A_tilde, sigma_idx):
-		model_input = torch.zeros((num_sigmas, max_nodes, max_nodes), device="cuda")
+		model_input = torch.zeros((num_sigmas, max_nodes, max_nodes), device=device)
 		model_input[num_sigmas - sigma_idx - 1, :, :] = pad_adjs(A_tilde, max_nodes)
 
 		with torch.no_grad():
@@ -72,8 +72,8 @@ def pad_adjs(ori_adj, node_number):
         return a
     if ori_len > node_number:
         raise ValueError(f'ori_len {ori_len} > node_number {node_number}')
-    a = torch.concatenate([a, torch.zeros(ori_len, node_number - ori_len)], axis=-1)
-    a = torch.concatenate([a, torch.zeros(node_number - ori_len, node_number)], axis=0)
+    a = torch.cat([a, torch.zeros(ori_len, node_number - ori_len, device=ori_adj.device)], axis=-1)
+    a = torch.cat([a, torch.zeros(node_number - ori_len, node_number, device=ori_adj.device)], axis=0)
     return a
 
 def heat_diffusion_filter(A, theta):
