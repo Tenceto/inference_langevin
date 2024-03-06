@@ -131,7 +131,7 @@ class AdamEstimator:
         self.num_filter_params = len(signature(h_theta).parameters) - 1
 
     def adam_estimate(self, A_nan, Y, l1_penalty):
-        A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
+        A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape).to(A_nan.device)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
         
@@ -155,7 +155,7 @@ class AdamEstimator:
         for _ in range(self.n_iter):
             A = self.symmetrize_and_clip(A_tilde)
             optimizer.zero_grad()
-            loss = self.compute_penalized_minus_likelihood(A, Y, S, theta,
+            loss = self.compute_penalized_minus_likelihood(A, Y, S, torch.clip(theta, min=1.0E-6),
                                                            l1_penalty, unknown_mask, A_known)
             loss.backward()
             optimizer.step()
