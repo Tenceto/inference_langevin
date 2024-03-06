@@ -3,6 +3,7 @@ import cvxpy as cp
 import numpy as np
 from inspect import signature
 from scipy.optimize import nnls
+from inverse_covariance import QuicGraphicalLasso, ModelAverage, QuicGraphicalLassoCV
 
 
 torch.set_default_dtype(torch.float64)
@@ -189,6 +190,47 @@ class AdamEstimator:
         A = torch.triu(A) + torch.triu(A, diagonal=1).T
         A = torch.clip(A, 0.0, 1.0)
         return A
+
+
+class StabilitySelector:
+    def __init__(self, n_bootstrap, lam_init=0.01, lams=10, n_refinements=10, cv=5):
+        self.n_bootstrap = n_bootstrap
+        self.lam_init = lam_init
+        self.lams = lams
+        self.n_refinements = n_refinements
+        self.cv = cv
+    
+    def glasso_estimate(self, Y, theta_length):
+        cv_model = QuicGraphicalLassoCV(
+            lam=self.lam_init,
+            lams=self.lams,
+            n_refinements=self.n_refinements,
+            cv=self.cv,
+            score_metric="log_likelihood",
+            init_method="cov",
+            n_jobs=-1,
+        )
+        cv_model.fit(Y.cpu().numpy().T)
+
+        model = ModelAverage(estimator=QuicGraphicalLasso(lam=cv_model.lam_, 
+                                                          init_method="cov",
+                                                          auto_scale=False, 
+                                                          verbose=False),
+                             n_jobs=-1, 
+                             n_trials=self.n_bootstrap, 
+                             penalization="subsampling",
+                             support_thresh=0.5)
+        model.fit(Y.cpu().numpy().T)
+
+        # Put 0 in the diagonal
+        A = torch.Tensor(model.proportion_).to(Y.device)
+        A[np.diag_indices_from(A)] = 0.0
+
+        # Estimate theta from the final A
+        k = Y.shape[1]
+        S = (Y @ Y.T) / k
+        theta = SpectralTemplates.lstsq_coefficients(A, S, theta_length)
+        return A, theta
 
 
 class SpectralTemplates:
