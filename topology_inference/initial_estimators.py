@@ -55,3 +55,45 @@ class BootstrapAdamInitializer:
         A_initial_est = ut.threshold_probabilities(A_bootstrap, margin)
 
         return A_initial_est, theta_bootstrap
+
+
+class BootstrapSpectralInitializer:
+    def __init__(self, h_theta, epsilon_range=(0, 2), num_iter_reweight_refinements=10):
+        self.spectral_estimator = est.SpectralTemplates()
+        self.h_theta = h_theta
+        self.epsilon_range = epsilon_range
+        self.num_iter_reweight_refinements = num_iter_reweight_refinements
+    
+    def initial_estimation(self, Y, threshold, bootstrap_samples, margin):
+        A_bootstrap_est = list()
+        theta_bootstrap_est = list()
+        for b in range(bootstrap_samples):
+            # Create a square matrix full of NaNs of the same shape as Y[0]
+            A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'), device=Y.device)
+            A_nan.fill_diagonal_(0.0)
+            # Bootstrap the data
+            idx_bootstrap = torch.randint(0, Y.shape[1], (Y.shape[1],))
+            Y_bootstrap = Y[:, idx_bootstrap]
+            # Run the Spectral Templates estimator for a fully unknown graph
+            emp_cov = (Y_bootstrap @ Y_bootstrap.T) / Y_bootstrap.shape[1]
+            _, emp_cov_eigenvectors = torch.linalg.eigh(emp_cov)
+            S_espectral, _, _ = self.spectral_estimator.spectral_templates(emp_cov=emp_cov.cpu().numpy(),
+                                                                           emp_cov_eigenvectors=emp_cov_eigenvectors.cpu().numpy(),
+                                                                           epsilon_range=self.epsilon_range,
+                                                                           num_iter_reweight_refinements=self.num_iter_reweight_refinements)
+            S_spectral_abs = torch.tensor(S_espectral).abs().fill_diagonal_(0.0)
+            theta_spectral = self.spectral_estimator.lstsq_coefficients(S_spectral_abs.cuda(),
+                                                                        Cx=emp_cov.cuda(),
+                                                                        theta_length=len(signature(self.h_theta).parameters) - 1, 
+                                                                        threshold=threshold)
+            A_spectral = (S_spectral_abs > threshold).double()
+
+            A_bootstrap_est.append(A_spectral)
+            theta_bootstrap_est.append(theta_spectral)
+
+        A_bootstrap = torch.stack(A_bootstrap_est).mean(dim=0)
+        theta_bootstrap = torch.stack(theta_bootstrap_est).mean(dim=0)
+
+        A_initial_est = ut.threshold_probabilities(A_bootstrap, margin)
+
+        return A_initial_est.to(Y.device), theta_bootstrap.to(Y.device)
