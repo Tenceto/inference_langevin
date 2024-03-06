@@ -4,6 +4,7 @@ from inspect import signature
 import topology_inference.estimators_white_noise as est
 import topology_inference.utils as ut
 
+torch.set_default_dtype(torch.float64)
 
 class AdamInitializer:
     def __init__(self, h_theta, theta_dist, lr, n_epochs):
@@ -14,7 +15,7 @@ class AdamInitializer:
         theta_adam_est = list()
         for i in range(num_runs):
             # Create a square matrix full of NaNs of the same shape as Y[0]
-            A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'))
+            A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'), device=Y.device)
             A_nan.fill_diagonal_(0.0)
             # Run the Adam estimator for a fully unknown graph
             A_adam, theta_adam, _ = self.adam_est.adam_estimate(A_nan=A_nan, Y=Y.to(A_nan.device), l1_penalty=l1_penalty)
@@ -38,7 +39,7 @@ class BootstrapAdamInitializer:
         theta_bootstrap_est = list()
         for b in range(bootstrap_samples):
             # Create a square matrix full of NaNs of the same shape as Y[0]
-            A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'))
+            A_nan = torch.full((Y.shape[0], Y.shape[0]), float('nan'), device=Y.device)
             A_nan.fill_diagonal_(0.0)
             # Bootstrap the data
             idx_bootstrap = torch.randint(0, Y.shape[1], (Y.shape[1],))

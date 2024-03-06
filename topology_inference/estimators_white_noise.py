@@ -6,6 +6,8 @@ from inspect import signature
 from topology_inference.utils import heat_diffusion_filter
 
 
+torch.set_default_dtype(torch.float64)
+
 class LangevinEstimator:
     def __init__(self, h_theta, A_score_model, theta_prior_dist):
         self.h_theta = h_theta
@@ -51,7 +53,7 @@ class LangevinEstimator:
         z_dist = torch.distributions.MultivariateNormal(torch.zeros(size_unknown), torch.eye(size_unknown))
 
         # Initialize A_tilde and its projection
-        A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
+        A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape).to(A_nan.device)
         A_tilde = 0.5 * (torch.triu(A_tilde) + torch.triu(A_tilde, 1).T)
         A_tilde.fill_diagonal_(0.0)
         A_tilde[known_mask] = A_nan[known_mask]
@@ -70,7 +72,7 @@ class LangevinEstimator:
         for sigma_i_idx, sigma_i_sq in enumerate(sigmas_sq):
             alpha = epsilon * sigma_i_sq / sigmas_sq[-1]
             for t in range(steps):
-                z = z_dist.sample([1])
+                z = z_dist.sample([1]).to(A_tilde.device)
                 # Compute the score
                 score_prior_A = self.A_score_model(A_tilde, sigma_i_idx)[unknown_idxs[0], unknown_idxs[1]]
                 score_likelihood_A = self.score_graph_likelihood(A_tilde, Y, S, theta_tilde.clone().detach())[unknown_idxs[0], unknown_idxs[1]]
@@ -141,8 +143,8 @@ class AdamEstimator:
         unknown_mask = unknown_mask.float()
 
         A_tilde.requires_grad_(True)
-        theta = self.theta_prior_dist.sample([self.num_filter_params])
-        if self.h_theta == heat_diffusion_filter:
+        theta = self.theta_prior_dist.sample([self.num_filter_params]).to(A_nan.device).abs()
+        # if self.h_theta == heat_diffusion_filter:
             theta = theta.abs()
         theta.requires_grad_(True)
         optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
@@ -297,6 +299,7 @@ class SpectralTemplates:
     
     @staticmethod
     def lstsq_coefficients(S_espectral, Cx, theta_length, threshold=0.5):
+        S_espectral = S_espectral.to(Cx.device)
         A_spectral = (S_espectral.abs() > threshold).double()
         lam, V = torch.linalg.eigh(A_spectral)
         Cx_diag = torch.diag(V.T @ Cx @ V)
