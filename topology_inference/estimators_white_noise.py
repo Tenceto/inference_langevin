@@ -2,8 +2,7 @@ import torch
 import cvxpy as cp
 import numpy as np
 from inspect import signature
-
-from topology_inference.utils import heat_diffusion_filter
+from scipy.optimize import nnls
 
 
 torch.set_default_dtype(torch.float64)
@@ -145,7 +144,7 @@ class AdamEstimator:
         A_tilde.requires_grad_(True)
         theta = self.theta_prior_dist.sample([self.num_filter_params]).to(A_nan.device).abs()
         # if self.h_theta == heat_diffusion_filter:
-            theta = theta.abs()
+        #     theta = theta.abs()
         theta.requires_grad_(True)
         optimizer = torch.optim.Adam([A_tilde, theta], lr=self.lr)
         loss_hist = []
@@ -307,7 +306,9 @@ class SpectralTemplates:
         for i in range(theta_length):
             a[:, i] = lam ** (theta_length - i - 1)
         b = Cx_diag.sqrt()
-        return torch.linalg.lstsq(a, b).solution
+        # return torch.linalg.lstsq(a, b).solution
+        solution = nnls(a.cpu().numpy(), b.cpu().numpy())[0]
+        return torch.Tensor(solution).to(Cx.device)
 
     def spectral_template_problem(self, N, eps=None, spec_temps_in=None):
         # Define Variables and Parameters
