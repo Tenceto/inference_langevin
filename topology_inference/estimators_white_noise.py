@@ -193,14 +193,18 @@ class AdamEstimator:
 
 
 class StabilitySelector:
-    def __init__(self, n_bootstrap, lam_init=0.01, lams=10, n_refinements=10, cv=5):
+    def __init__(self, h_theta, n_bootstrap, lam_init=0.01, lams=10, n_refinements=10, cv=5, n_jobs=1):
         self.n_bootstrap = n_bootstrap
         self.lam_init = lam_init
         self.lams = lams
         self.n_refinements = n_refinements
         self.cv = cv
+        self.h_theta = h_theta
+        self.n_jobs = n_jobs
     
-    def glasso_estimate(self, Y, theta_length):
+    def glasso_estimate(self, Y):
+        theta_length = len(signature(self.h_theta).parameters) - 1
+
         cv_model = QuicGraphicalLassoCV(
             lam=self.lam_init,
             lams=self.lams,
@@ -208,7 +212,8 @@ class StabilitySelector:
             cv=self.cv,
             score_metric="log_likelihood",
             init_method="cov",
-            n_jobs=-1,
+            n_jobs=self.n_jobs,
+            verbose=False
         )
         cv_model.fit(Y.cpu().numpy().T)
 
@@ -216,7 +221,7 @@ class StabilitySelector:
                                                           init_method="cov",
                                                           auto_scale=False, 
                                                           verbose=False),
-                             n_jobs=-1, 
+                             n_jobs=self.n_jobs, 
                              n_trials=self.n_bootstrap, 
                              penalization="subsampling",
                              support_thresh=0.5)
@@ -238,8 +243,34 @@ class SpectralTemplates:
     Code copied from the original repository of the paper "pyGSL: A Graph Structure Learning Toolkit"
     by Max Wasserman and Gonzalo Mateos.
     """
-    def __init__(self):
-        pass
+    def __init__(self, h_theta, threshold_fun, epsilon_range=(0,2), num_iter_reweight_refinements=3):
+        self.h_theta = h_theta
+        self.threshold_fun = threshold_fun
+        self.epsilon_range = epsilon_range
+        self.num_iter_reweight_refinements = num_iter_reweight_refinements
+
+    def spectral_estimate(self, Y):
+        num_obs = Y.shape[1]
+        num_nodes = Y.shape[0]
+        obs_ratio = num_obs / num_nodes
+
+        emp_cov = (Y @ Y.T) / num_obs
+        _, emp_cov_eigenvectors = torch.linalg.eigh(emp_cov)
+
+        S_espectral, _, _ = self.spectral_templates(emp_cov=emp_cov.cpu().numpy(),
+                                                    emp_cov_eigenvectors=emp_cov_eigenvectors.cpu().numpy(),
+                                                    epsilon_range=self.epsilon_range,
+                                                    num_iter_reweight_refinements=self.num_iter_reweight_refinements)
+        S_espectral = torch.tensor(S_espectral).abs()
+        S_espectral = S_espectral.fill_diagonal_(0.0)
+
+        theta_spectral = self.lstsq_coefficients(S_espectral,
+                                                 Cx=emp_cov,
+                                                 theta_length=len(signature(self.h_theta).parameters) - 1,
+                                                 threshold=self.threshold_fun(obs_ratio))
+        A_spectral = (S_espectral > self.threshold_fun(obs_ratio)).float()
+
+        return A_spectral, theta_spectral
 
     def spectral_templates(self, emp_cov: np.ndarray, emp_cov_eigenvectors: np.ndarray, epsilon_range=(0, 2),
                            binary_search_iters: int=5,
