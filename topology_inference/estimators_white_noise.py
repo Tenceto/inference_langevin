@@ -41,7 +41,7 @@ class LangevinEstimator:
 
         As = []
         for _ in range(num_samples):
-            this_A = self._generate_individual_sample(A_nan, S, k, sigmas_sq, steps, epsilon, adam_lr, temperature,
+            this_A = self._langevin_individual_sample(A_nan, S, k, sigmas_sq, steps, epsilon, adam_lr, temperature,
                                                       projection_method, clip_A_tilde)
             As.append(this_A)
         A = torch.stack(As).mean(dim=0)
