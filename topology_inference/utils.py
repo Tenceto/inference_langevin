@@ -2,7 +2,6 @@ import numpy as np
 import torch
 import random, itertools
 import networkx as nx
-from inspect import signature
 from easydict import EasyDict as edict
 from edp_gnn.utils.loading_utils import get_score_model
 from sklearn.metrics import f1_score, roc_auc_score, roc_curve
@@ -16,8 +15,7 @@ def compute_initalizer_metrics(pred, true_supp):
     prop_correct = round(np.sum(pred == true_supp) / len(pred), 2)
     return prop_unknown, prop_known_correct, prop_correct
 
-def simulate_data_white_noise(A, k, theta_dist, h_theta):
-    len_theta = len(signature(h_theta).parameters) - 1
+def simulate_data_white_noise(A, k, theta_dist, h_theta, len_theta):
     # Filter parameter
     theta = theta_dist.sample([len_theta]).to(A.device)
     if h_theta == ut.heat_diffusion_filter:
@@ -77,25 +75,42 @@ def pad_adjs(ori_adj, node_number):
     return a
 
 def heat_diffusion_filter(A, theta):
+    assert len(theta) == 1 or isinstance(theta, float), "theta should be a scalar for the heat diffusion filter."
     L = compute_laplacian(A)
     return torch.linalg.matrix_exp(- L * theta)
     # return - 0.2 * L - torch.eye(L.shape[0])
 
-def arma_gf_order_one(A, alpha, beta):
+def arma_gf_order_one(A, theta):
+    assert len(theta) == 2, "theta should be a list of length 2 for the ARMA-GF filter."
+
+    alpha, beta = theta[0], theta[1]
     I = torch.eye(A.shape[0])
     return (I - beta * A) @ (I - alpha * A).T
 
-def poly_third_order(A, a, b, c, d):
+def poly_third_order(A, theta):
+    assert len(theta) == 4, "theta should be a list of length 4 for the third order polynomial filter."
+
+    a, b, c, d = theta[0], theta[1], theta[2], theta[3]
     # L = compute_laplacian(A)
     I = torch.eye(A.shape[0])
     return a * torch.matrix_power(A, 3) + b * torch.matrix_power(A, 2) + c * A + d * I
     # return a * (L @ L) + b * L + c * I
 
-def poly_second_order(A, a, b, c):
+def poly_second_order(A, theta):
+    assert len(theta) == 3, "theta should be a list of length 3 for the second order polynomial filter."
+
+    a, b, c = theta[0], theta[1], theta[2]
     # L = compute_laplacian(A)
     I = torch.eye(A.shape[0]).to(A.device)
     return a * torch.matrix_power(A, 2) + b * A + c * I
     # return a * (L @ L) + b * L + c * I
+
+def node_varying_second_order(A, theta):
+    assert len(theta) == A.shape[0], "theta should be a list of length equal to the number of nodes for the node-varying filter."
+
+    H = torch.diag(theta)
+    return H @ torch.matrix_power(A, 2) + H @ A + H
+
 
 def compute_laplacian(A):
     D = torch.diag(A.sum(axis=1))

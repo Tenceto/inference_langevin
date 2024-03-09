@@ -6,7 +6,6 @@ from contextlib import redirect_stdout
 import logging
 import traceback
 import sys
-from inspect import signature
 import pandas as pd
 import os
 from sklearn.metrics import f1_score
@@ -73,6 +72,7 @@ obs_ratio_list = np.logspace(np.log10(0.15), np.log10(50), 10)
 # Filter parameter distribution
 theta_min, theta_max = -0.5, 0.5
 h_theta = ut.poly_second_order
+len_theta = 3
 # Prior score model
 model = ut.load_model(model_file)
 
@@ -85,7 +85,6 @@ margin_list = [0.1, 0.2, 0.3, 0.4]
 # Save results
 output_file = f"outputs/adaminit_graphtype_{graph_type}_seed_{seed}_theta_range_{(theta_min, theta_max)}_filter_{h_theta.__name__}.csv"
 theta_dist = torch.distributions.Uniform(theta_min, theta_max)
-len_theta = len(signature(h_theta).parameters) - 1
 n_samples_grid, margin_grid = np.meshgrid(n_samples_list, margin_list)
 n_samples_grid = n_samples_grid.flatten()
 margin_grid = margin_grid.flatten()

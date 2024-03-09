@@ -1,17 +1,16 @@
 import torch
 import cvxpy as cp
 import numpy as np
-from inspect import signature
 from scipy.optimize import nnls
 from inverse_covariance import QuicGraphicalLasso, ModelAverage, QuicGraphicalLassoCV
 
-
+torch.set_default_device("cuda")
 torch.set_default_dtype(torch.float64)
 
 class LangevinEstimator:
-    def __init__(self, h_theta, A_score_model, theta_prior_dist):
+    def __init__(self, h_theta, len_theta, A_score_model, theta_prior_dist):
         self.h_theta = h_theta
-        self.num_filter_params = len(signature(h_theta).parameters) - 1
+        self.len_theta = len_theta
         self.A_score_model = A_score_model
         # self.sigma_e = sigma_e
         self.theta_prior_dist = theta_prior_dist
@@ -47,7 +46,7 @@ class LangevinEstimator:
         A = torch.stack(As).mean(dim=0)
 
         # Estimate the final theta from scratch using the final A
-        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params]).to(A_nan.device).abs()
+        theta_tilde = self.theta_prior_dist.sample([self.len_theta]).to(A_nan.device).abs()
         theta_tilde.requires_grad_(True)
         optimizer = torch.optim.Adam([theta_tilde], lr=adam_lr)
         for _ in range(steps * len(sigmas_sq)):
@@ -63,7 +62,7 @@ class LangevinEstimator:
                                     projection_method, clip_A_tilde):
         
         # Initialize theta_tilde
-        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params]).to(A_nan.device).abs()
+        theta_tilde = self.theta_prior_dist.sample([self.len_theta]).to(A_nan.device).abs()
         theta_tilde.requires_grad_(True)
         optimizer = torch.optim.Adam([theta_tilde], lr=adam_lr)
 
@@ -102,7 +101,7 @@ class LangevinEstimator:
                 loss.backward()
                 optimizer.step()
 
-        return A_proj.detach()
+        return A_tilde.detach()
     
     def project_adjacency_matrix(self, A_tilde, projection_method):
         if projection_method == "rounding":
@@ -124,13 +123,13 @@ class LangevinEstimator:
 
 
 class AdamEstimator:
-    def __init__(self, h_theta, theta_prior_dist, lr, n_iter):
+    def __init__(self, h_theta, len_theta, theta_prior_dist, lr, n_iter):
         self.h_theta = h_theta
         self.theta_prior_dist = theta_prior_dist
         # self.sigma_e = sigma_e
         self.lr = lr
         self.n_iter = n_iter
-        self.num_filter_params = len(signature(h_theta).parameters) - 1
+        self.len_theta = len_theta
 
     def adam_estimate(self, A_nan, Y, l1_penalty):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape).to(A_nan.device)
@@ -144,7 +143,7 @@ class AdamEstimator:
         unknown_mask = unknown_mask.float()
 
         A_tilde.requires_grad_(True)
-        theta = self.theta_prior_dist.sample([self.num_filter_params]).to(A_nan.device).abs()
+        theta = self.theta_prior_dist.sample([self.len_theta]).to(A_nan.device).abs()
         # if self.h_theta == heat_diffusion_filter:
         #     theta = theta.abs()
         theta.requires_grad_(True)
@@ -193,18 +192,17 @@ class AdamEstimator:
 
 
 class StabilitySelector:
-    def __init__(self, h_theta, n_bootstrap, lam_init=0.01, lams=10, n_refinements=10, cv=5, n_jobs=1):
+    def __init__(self, h_theta, len_theta, n_bootstrap, lam_init=0.01, lams=10, n_refinements=10, cv=5, n_jobs=1):
         self.n_bootstrap = n_bootstrap
         self.lam_init = lam_init
         self.lams = lams
         self.n_refinements = n_refinements
         self.cv = cv
         self.h_theta = h_theta
+        self.len_theta = len_theta
         self.n_jobs = n_jobs
     
     def glasso_estimate(self, Y):
-        theta_length = len(signature(self.h_theta).parameters) - 1
-
         cv_model = QuicGraphicalLassoCV(
             lam=self.lam_init,
             lams=self.lams,
@@ -234,7 +232,7 @@ class StabilitySelector:
         # Estimate theta from the final A
         k = Y.shape[1]
         S = (Y @ Y.T) / k
-        theta = SpectralTemplates.lstsq_coefficients(A, S, theta_length)
+        theta = SpectralTemplates.lstsq_coefficients(A, S, self.len_theta)
         return A, theta
 
 
@@ -243,8 +241,9 @@ class SpectralTemplates:
     Code copied from the original repository of the paper "pyGSL: A Graph Structure Learning Toolkit"
     by Max Wasserman and Gonzalo Mateos.
     """
-    def __init__(self, h_theta, threshold_fun, epsilon_range=(0,2), num_iter_reweight_refinements=3):
+    def __init__(self, h_theta, len_theta, threshold_fun, epsilon_range=(0,2), num_iter_reweight_refinements=3):
         self.h_theta = h_theta
+        self.len_theta = len_theta
         self.threshold_fun = threshold_fun
         self.epsilon_range = epsilon_range
         self.num_iter_reweight_refinements = num_iter_reweight_refinements
@@ -266,7 +265,7 @@ class SpectralTemplates:
 
         theta_spectral = self.lstsq_coefficients(S_espectral,
                                                  Cx=emp_cov,
-                                                 theta_length=len(signature(self.h_theta).parameters) - 1,
+                                                 theta_length=self.len_theta,
                                                  threshold=self.threshold_fun(obs_ratio))
         A_spectral = (S_espectral > self.threshold_fun(obs_ratio)).float()
 

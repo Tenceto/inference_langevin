@@ -1,5 +1,4 @@
 import torch
-from inspect import signature
 
 import topology_inference.estimators_white_noise as est
 import topology_inference.utils as ut
@@ -58,9 +57,10 @@ class BootstrapAdamInitializer:
 
 
 class BootstrapSpectralInitializer:
-    def __init__(self, h_theta, epsilon_range=(0, 2), num_iter_reweight_refinements=10):
+    def __init__(self, h_theta, len_theta, epsilon_range=(0, 2), num_iter_reweight_refinements=10):
         self.spectral_estimator = est.SpectralTemplates()
         self.h_theta = h_theta
+        self.len_theta = len_theta
         self.epsilon_range = epsilon_range
         self.num_iter_reweight_refinements = num_iter_reweight_refinements
     
@@ -84,7 +84,7 @@ class BootstrapSpectralInitializer:
             S_spectral_abs = torch.tensor(S_espectral).abs().fill_diagonal_(0.0)
             theta_spectral = self.spectral_estimator.lstsq_coefficients(S_spectral_abs.cuda(),
                                                                         Cx=emp_cov.cuda(),
-                                                                        theta_length=len(signature(self.h_theta).parameters) - 1, 
+                                                                        theta_length=self.len_theta, 
                                                                         threshold=threshold)
             A_spectral = (S_spectral_abs > threshold).double()
 

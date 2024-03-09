@@ -6,7 +6,6 @@ from contextlib import redirect_stdout
 import logging
 import traceback
 import sys
-from inspect import signature
 import pandas as pd
 import os
 
@@ -73,6 +72,7 @@ b = 50
 # Filter parameter distribution
 theta_min, theta_max = 0.3, 0.7
 h_theta = ut.heat_diffusion_filter
+len_theta = 1
 # Variance of the noise
 sigma_e = 1
 # Unknown fraction of the matrix
@@ -95,7 +95,6 @@ l1_penalty = 0.0
 # Save results
 output_file = f"outputs/bootstrap_{graph_type}_{seed}_{lr}_{sigma_e}_{n}_{(theta_min, theta_max)}_{h_theta.__name__}.csv"
 theta_dist = torch.distributions.Uniform(theta_min, theta_max)
-len_theta = len(signature(h_theta).parameters) - 1
 
 def simulate_data(A, n):
     # Filter parameter

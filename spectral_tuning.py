@@ -6,7 +6,6 @@ from contextlib import redirect_stdout
 import logging
 import traceback
 import sys
-from inspect import signature
 import pandas as pd
 import os
 from sklearn.metrics import f1_score
@@ -69,10 +68,11 @@ model_file = model_files[graph_type]
 adj_matrices = [torch.tensor(nx.to_numpy_array(g, nodelist=np.random.permutation(g.nodes()))).cuda() for g in graphs]
 # Number of measurements
 # obs_ratio_list = [0.15, 0.43, 0.72, 1.]
-obs_ratio_list = np.logspace(np.log10(0.15), np.log10(50), 10)
+obs_ratio_list = np.logspace(np.log10(0.5), np.log10(100), 10)
 # Filter parameter distribution
-theta_min, theta_max = -0.5, 0.5
+theta_min, theta_max = 0.3, 1.0
 h_theta = ut.poly_second_order
+len_theta = 3
 # Prior score model
 model = ut.load_model(model_file)
 
@@ -82,7 +82,6 @@ threshold_spectral = None
 # Save results
 output_file = f"outputs/spectraltuning_graphtype_{graph_type}_seed_{seed}_theta_range_{(theta_min, theta_max)}_filter_{h_theta.__name__}.csv"
 theta_dist = torch.distributions.Uniform(theta_min, theta_max)
-len_theta = len(signature(h_theta).parameters) - 1
 
 # Run your main script here:
 if __name__ == '__main__':

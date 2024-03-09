@@ -1,13 +1,12 @@
 import torch
-from inspect import signature
 
-from topology_inference.utils import compute_aucroc, compute_relative_error, heat_diffusion_filter
+from topology_inference.utils import heat_diffusion_filter
 
 
 class LangevinEstimator:
-    def __init__(self, h_theta, A_score_model, sigma_e, theta_prior_dist):
+    def __init__(self, h_theta, len_theta, A_score_model, sigma_e, theta_prior_dist):
         self.h_theta = h_theta
-        self.num_filter_params = len(signature(h_theta).parameters) - 1
+        self.len_theta = len_theta
         self.A_score_model = A_score_model
         self.sigma_e = sigma_e
         self.theta_prior_dist = theta_prior_dist
@@ -32,7 +31,7 @@ class LangevinEstimator:
                           projection_method="rounding", clip_A_tilde=False, true_A=None, true_theta=None):
         
         # Initialize theta_tilde
-        theta_tilde = self.theta_prior_dist.sample([self.num_filter_params])
+        theta_tilde = self.theta_prior_dist.sample([self.len_theta])
         if self.h_theta == heat_diffusion_filter:
             theta_tilde = theta_tilde.abs()
         theta_tilde.requires_grad_(True)
@@ -112,12 +111,12 @@ class LangevinEstimator:
 
 
 class AdamEstimator:
-    def __init__(self, h_theta, sigma_e, lr, n_iter):
+    def __init__(self, h_theta, len_theta, sigma_e, lr, n_iter):
         self.h_theta = h_theta
         self.sigma_e = sigma_e
         self.lr = lr
         self.n_iter = n_iter
-        self.num_filter_params = len(signature(h_theta).parameters) - 1
+        self.len_theta = len_theta
 
     def adam_estimate(self, A_nan, X, Y, theta_prior_dist, l1_penalty):
         A_tilde = torch.distributions.Normal(0.5, 0.1).sample(A_nan.shape)
@@ -131,7 +130,7 @@ class AdamEstimator:
         unknown_mask = unknown_mask.float()
 
         A_tilde.requires_grad_(True)
-        theta = theta_prior_dist.sample([self.num_filter_params])
+        theta = theta_prior_dist.sample([self.len_theta])
         if self.h_theta == heat_diffusion_filter:
             theta = theta.abs()
         theta.requires_grad_(True)
