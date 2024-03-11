@@ -26,7 +26,7 @@ class LangevinEstimator:
         return grad
 
     def compute_minus_likelihood(self, A, S, k, theta):
-        F = self.h_theta(A, *theta)
+        F = self.h_theta(A, theta)
         Omega = torch.linalg.inv(F @ F.T)
         log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
         return - log_likelihood
@@ -170,7 +170,7 @@ class AdamEstimator:
         A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
         A_symmetric = A * unknown_mask + A_known * (1 - unknown_mask)
         k = Y.shape[1]
-        F = self.h_theta(A_symmetric, *theta)
+        F = self.h_theta(A_symmetric, theta)
         Omega = torch.linalg.inv(F @ F.T)
         log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
         return - log_likelihood + l1_penalty * A_symmetric.norm(p=1)
@@ -180,7 +180,7 @@ class AdamEstimator:
     #     A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
     #     A_symmetric = A * unknown_mask + A_known * (1 - unknown_mask)
     #     k = Y.shape[1]
-    #     F = self.h_theta(A_symmetric, *theta)
+    #     F = self.h_theta(A_symmetric, theta)
     #     Omega = torch.linalg.inv(F @ F.T)
     #     log_likelihood = (torch.logdet(Omega) - torch.trace(S @ Omega)) * k / 2
     #     return - log_likelihood

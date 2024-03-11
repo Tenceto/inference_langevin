@@ -21,7 +21,7 @@ def simulate_data_white_noise(A, k, theta_dist, h_theta, len_theta):
     if h_theta == ut.heat_diffusion_filter:
         theta = theta.abs()
 
-    F = h_theta(A, *theta).to(A.device)
+    F = h_theta(A, theta).to(A.device)
     # Generate white noise of unit variance
     X = torch.randn(A.shape[0], k).to(A.device).double()
     # Pass through the filter

@@ -30,8 +30,9 @@ class AdamInitializer:
 
 
 class BootstrapAdamInitializer:
-    def __init__(self, h_theta, theta_dist, lr, n_epochs):
-        self.adam_est = est.AdamEstimator(h_theta=h_theta, theta_prior_dist=theta_dist, lr=lr, n_iter=n_epochs)
+    def __init__(self, h_theta, len_theta, theta_dist, lr, n_epochs):
+        self.adam_est = est.AdamEstimator(h_theta=h_theta, len_theta=len_theta,
+                                          theta_prior_dist=theta_dist, lr=lr, n_iter=n_epochs)
     
     def initial_estimation(self, Y, l1_penalty, bootstrap_samples, margin):
         A_bootstrap_est = list()
