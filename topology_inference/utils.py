@@ -112,6 +112,16 @@ def node_varying_second_order(A, theta):
     return H @ torch.matrix_power(A, 2) + H @ A + H
 
 
+def rational_first_order(A, theta):
+    assert len(theta) == 3, "theta should be a list of length 3 for the rational first order filter."
+
+    a_1, b_0, b_1 = theta[0], theta[1], theta[2]
+    I = torch.eye(A.shape[0])
+    P_inv = torch.linalg.inv(I + a_1 * A)
+    Q = b_0 * I + b_1 * A
+    return P_inv @ Q
+
+
 def compute_laplacian(A):
     D = torch.diag(A.sum(axis=1))
     return D - A
