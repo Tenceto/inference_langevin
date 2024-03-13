@@ -106,10 +106,19 @@ def poly_second_order(A, theta):
     # return a * (L @ L) + b * L + c * I
 
 def node_varying_second_order(A, theta):
-    assert len(theta) == A.shape[0], "theta should be a list of length equal to the number of nodes for the node-varying filter."
+    assert len(theta) == 3 * A.shape[0], "theta should be a list of 3 * N for the node-varying filter."
 
-    H = torch.diag(theta)
-    return H @ torch.matrix_power(A, 2) + H @ A + H
+    H_2 = torch.diag(theta[:A.shape[0]])
+    H_1 = torch.diag(theta[A.shape[0]:2 * A.shape[0]])
+    H_0 = torch.diag(theta[2 * A.shape[0]:])
+    return H_2 @ torch.matrix_power(A, 2) + H_1 @ A + H_0
+
+
+# def node_varying_third_order(A, theta):
+#     assert len(theta) == A.shape[0], "theta should be a list of length equal to the number of nodes for the node-varying filter."
+
+#     H = torch.diag(theta)
+#     return H @ torch.matrix_power(A, 3) + H @ torch.matrix_power(A, 2) + H @ A + H
 
 
 def rational_first_order(A, theta):
