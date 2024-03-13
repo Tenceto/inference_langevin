@@ -14,6 +14,8 @@ class LangevinEstimator:
         self.A_score_model = A_score_model
         # self.sigma_e = sigma_e
         self.theta_prior_dist = theta_prior_dist
+        self.theta_max = theta_prior_dist.high
+        self.theta_min = theta_prior_dist.low
         self.metrics = None
 
     def score_graph_likelihood(self, A, S, k, theta):
@@ -51,12 +53,13 @@ class LangevinEstimator:
         optimizer = torch.optim.Adam([theta_tilde], lr=adam_lr)
         for _ in range(steps * len(sigmas_sq)):
             optimizer.zero_grad()
-            loss = self.compute_minus_likelihood(A, S, k, torch.clip(theta_tilde, min=1.0E-6))
+            theta_tilde_clipped = torch.clip(theta_tilde, min=self.theta_min, max=self.theta_max)
+            loss = self.compute_minus_likelihood(A, S, k, theta_tilde_clipped)
             loss.backward()
             optimizer.step()
-        theta = theta_tilde.detach()
+        theta_clipped = torch.clip(theta_tilde, min=self.theta_min, max=self.theta_max)
 
-        return A, theta
+        return A, theta_clipped.detach()
 
     def _langevin_individual_sample(self, A_nan, S, k, sigmas_sq, steps, epsilon, adam_lr, temperature,
                                     projection_method, clip_A_tilde):
@@ -97,7 +100,8 @@ class LangevinEstimator:
                 A_proj = self.project_adjacency_matrix(A_tilde.clone().detach(), projection_method)
                 # Update theta
                 optimizer.zero_grad()
-                loss = self.compute_minus_likelihood(A_proj, S, k, torch.clip(theta_tilde, min=1.0E-6))
+                theta_tilde_clipped = torch.clip(theta_tilde, min=self.theta_min, max=self.theta_max)
+                loss = self.compute_minus_likelihood(A_proj, S, k, theta_tilde_clipped)
                 loss.backward()
                 optimizer.step()
 
@@ -126,6 +130,8 @@ class AdamEstimator:
     def __init__(self, h_theta, len_theta, theta_prior_dist, lr, n_iter):
         self.h_theta = h_theta
         self.theta_prior_dist = theta_prior_dist
+        self.theta_max = theta_prior_dist.high
+        self.theta_min = theta_prior_dist.low
         # self.sigma_e = sigma_e
         self.lr = lr
         self.n_iter = n_iter
@@ -156,15 +162,17 @@ class AdamEstimator:
         for _ in range(self.n_iter):
             A = self.symmetrize_and_clip(A_tilde)
             optimizer.zero_grad()
-            loss = self.compute_penalized_minus_likelihood(A, Y, S, torch.clip(theta, min=1.0E-6),
+            theta_clipped = torch.clip(theta, min=self.theta_min, max=self.theta_max)
+            loss = self.compute_penalized_minus_likelihood(A, Y, S, theta_clipped,
                                                            l1_penalty, unknown_mask, A_known)
             loss.backward()
             optimizer.step()
             loss_hist.append(loss.item())
 
         A = self.symmetrize_and_clip(A_tilde.detach())
+        theta_clipped = torch.clip(theta, min=self.theta_min, max=self.theta_max)
         
-        return A, theta.detach(), loss_hist
+        return A, theta_clipped.detach(), loss_hist
     
     def compute_penalized_minus_likelihood(self, A, Y, S, theta, l1_penalty, unknown_mask, A_known):
         A_symmetric = torch.triu(A) + torch.triu(A, diagonal=1).T
