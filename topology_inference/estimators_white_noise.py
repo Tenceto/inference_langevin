@@ -380,8 +380,12 @@ class SpectralTemplates:
             a[:, i] = lam ** (theta_length - i - 1)
         b = Cx_diag.sqrt()
         # return torch.linalg.lstsq(a, b).solution
-        solution = nnls(a.cpu().numpy(), b.cpu().numpy())[0]
-        return torch.Tensor(solution).to(Cx.device)
+        try:
+            solution = nnls(a.cpu().numpy(), b.cpu().numpy())[0]
+            solution = torch.Tensor(solution)
+        except:
+            solution = torch.full((theta_length,), float('nan'))
+        return solution.to(Cx.device)
 
     def spectral_template_problem(self, N, eps=None, spec_temps_in=None):
         # Define Variables and Parameters
