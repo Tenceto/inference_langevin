@@ -121,14 +121,45 @@ def node_varying_second_order(A, theta):
 #     return H @ torch.matrix_power(A, 3) + H @ torch.matrix_power(A, 2) + H @ A + H
 
 
-def rational_first_order(A, theta):
-    assert len(theta) == 3, "theta should be a list of length 3 for the rational first order filter."
+def rational(A, theta, order_p, order_q):
+    assert len(theta) == order_p + 1 + order_q, "theta should be a list of length (p + q + 1) for this rational filter."
+    assert order_p > 0 and order_q >= 0
 
-    a_1, b_0, b_1 = theta[0], theta[1], theta[2]
     I = torch.eye(A.shape[0])
-    P_inv = torch.linalg.inv(I + a_1 * A)
-    Q = b_0 * I + b_1 * A
-    return P_inv @ Q
+    # The matrix P is a polynomial of order p with the first order_p elements of theta
+    P = [theta[i] * torch.matrix_power(A, i + 1) for i in range(order_p)]
+    P = torch.stack(P, dim=0).sum(dim=0) + I
+    # The matrix Q is a polynomial of order q with the last order_q + 1 elements of theta
+    Q = [theta[i] * torch.matrix_power(A, i - order_p) for i in range(order_p, len(theta))]
+    Q = torch.stack(Q, dim=0).sum(dim=0)
+    return torch.linalg.inv(P) @ Q
+
+
+def volterra_2_3_orders(A, theta, X):
+    assert len(theta) == 12, "theta should be a list of length 12 for the Volterra-2-3 filter."
+
+    theta_matrix = theta.reshape(3, -1)
+    Y = torch.zeros(X.shape)
+    for l0 in range(theta_matrix.shape[0]):
+        for l1 in range(theta_matrix.shape[1]):
+            h = theta_matrix[l0, l1]
+            Y = Y + (X ** l0 * (A @ X) ** l1) * h
+    return Y
+
+
+def tikhonov(A, theta):
+    assert len(theta) == 1, "theta should be a list of length 1 for the Tikhonov filter."
+
+    L = compute_laplacian(A)
+    return torch.linalg.inv(theta[0] * L + torch.eye(A.shape[0]))
+
+
+def sobolev(A, theta):
+    assert len(theta) == 3, "theta should be a list of length 3 for the Sobolev filter."
+
+    gamma, epsilon, beta = theta[0], theta[1], theta[2].round()
+    L = compute_laplacian(A)
+    return torch.linalg.inv(theta[0] ** 2 * L + torch.eye(A.shape[0]))
 
 
 def compute_laplacian(A):
