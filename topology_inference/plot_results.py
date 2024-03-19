@@ -36,21 +36,25 @@ def plot_theta_results(filename, legend):
     plt.show()
 
 def plot_results(filename, legend, styles=None, figsize=(10, 5), output=None, x_label="num_obs",
-                 thresholds=None, theta_metric="relative_error", pad_inches=0.0, agg_fun="mean",
-                 colors=None,
+                 thresholds=None, theta_metric=None, pad_inches=0.0, agg_fun="mean",
+                 colors=None, theta_methods=None,
                  markersize=7, log_scale=False):
     if styles is not None:
         assert len(styles) == len(legend), "Number of styles must be equal to number of methods."
     else:
         styles = ["o-", "s-", "v-", "p-", "d-", "h-", "x-", "+-", "*-"]
 
-    fig, ax = plt.subplots(1, 2, figsize=figsize)
+    if theta_methods is None:
+        theta_methods = legend.values()
+
+    if theta_metric is None:
+        fig, ax = plt.subplots(1, 1, figsize=figsize)
+        ax = [ax]
+    else:
+        fig, ax = plt.subplots(1, 2, figsize=figsize)
     methods = list(legend.keys())
     results = pd.read_csv(filename, index_col=0, sep=";")
     print("Samples used:", len(results) // (results[x_label].nunique()))
-
-    # Some results are nan, we remove them for the plot
-    results = results[~ results["theta_spectral"].str.contains("nan")]
 
     for col in ["real_graph"] + [f"graph_{method}" for method in methods]:
         results[col] = results[col].apply(lambda x: np.array(eval(x)))
@@ -71,29 +75,34 @@ def plot_results(filename, legend, styles=None, figsize=(10, 5), output=None, x_
         results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[0], ms=markersize, color=colors.values())
 
     # Relative error on theta estimation
-    try:
-        for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
-            results[col] = results[col].astype(float)
-    except ValueError:
-        for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
-            results[col] = results[col].apply(lambda x: np.array(eval(x)))
-    if theta_metric == "relative_error":
-        for method in methods:
-            results[legend[method]] = results.apply(lambda row: np.abs(row["real_theta"] - row[f"theta_{method}"] / row["real_theta"]).sum(), axis=1)
+    if theta_metric is not None:
+        try:
+            for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
+                results[col] = results[col].astype(float)
+        except ValueError:
+            for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
+                results[col] = results[col].apply(lambda x: np.array(eval(x)))
+        if theta_metric == "relative_error":
+            for method in methods:
+                results[legend[method]] = results.apply(lambda row: np.abs(row["real_theta"] - row[f"theta_{method}"] / row["real_theta"]).sum(), axis=1)
             ax[1].set_title(r"Relative error on $\pmb{\theta}$")
-    elif theta_metric == "mse":
-        for method in methods:
-            results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
+        elif theta_metric == "mse":
+            for method in methods:
+                results[legend[method]] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
             ax[1].set_title(r"Normalized RMSE on $\pmb{\theta}$")
-    if agg_fun == "mean":
-        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].mean().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
-    elif agg_fun == "median":
-        results.groupby(x_label)[[col for col in results.columns if col in legend.values()]].median().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
-    # Remove the legend from both plots
-    for a in ax:
-        a.get_legend().remove()
-    # Add a unique legend to the side of both plots
-    ax[1].legend(legend.values(), loc='center left', bbox_to_anchor=(1, 0.5))
+        if agg_fun == "mean":
+            results.groupby(x_label)[[col for col in results.columns if col in theta_methods]].mean().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
+        elif agg_fun == "median":
+            results.groupby(x_label)[[col for col in results.columns if col in theta_methods]].median().plot(style=styles, ax=ax[1], ms=markersize, color=colors.values())
+        # Remove the legend from both plots
+        for a in ax:
+            a.get_legend().remove()
+    
+    if theta_metric is not None:
+        # Add a unique legend to the side of both plots
+        ax[1].legend(legend.values(), loc='center left', bbox_to_anchor=(1, 0.5))
+    else:
+        ax[0].legend(legend.values(), loc='center left', bbox_to_anchor=(1, 0.5))
 
     for a in ax:
         if x_label == "num_obs":
@@ -113,6 +122,43 @@ def plot_results(filename, legend, styles=None, figsize=(10, 5), output=None, x_
         plt.show()
     else:
         plt.savefig(output, pad_inches=pad_inches, bbox_inches='tight')
+
+
+def compute_metrics(filename, legend, thresholds=None, theta_metric=None):
+    methods = list(legend.keys())
+    results = pd.read_csv(filename, index_col=0, sep=";")
+    for col in [col for col in results.columns if "theta" in col]:
+        results[col] = results[col].str.replace("nan", "np.nan")
+    for col in ["real_graph"] + [f"graph_{method}" for method in methods]:
+        results[col] = results[col].apply(lambda x: np.array(eval(x)))
+    if thresholds is None:
+        # AUCROC on A estimation if there are no thresholds
+        for method in methods:
+            results[legend[method] + " Graph"] = results.apply(lambda row: roc_auc_score(row["real_graph"], row[f"graph_{method}"]), axis=1)
+    else:
+        # F1-score if thresholds are passed
+        for method in methods:
+            th = thresholds[method]
+            results[legend[method] + " Graph"] = results.apply(lambda row: f1_score(row["real_graph"], row[f"graph_{method}"] > th), axis=1)
+
+    if theta_metric is not None:
+        try:
+            for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
+                results[col] = results[col].astype(float)
+        except ValueError:
+            for col in ["real_theta"] + [f"theta_{method}" for method in methods]:
+                results[col] = results[col].apply(lambda x: np.array(eval(x)))
+        if theta_metric == "relative_error":
+            for method in methods:
+                results[legend[method] + " Theta"] = results.apply(lambda row: np.abs(row["real_theta"] - row[f"theta_{method}"] / row["real_theta"]).sum(), axis=1)
+        elif theta_metric == "mse":
+            for method in methods:
+                results[legend[method] + " Theta"] = results.apply(lambda row: np.sqrt(np.sum((row["real_theta"] - row[f"theta_{method}"]) ** 2) / np.sum(row["real_theta"] ** 2)), axis=1)
+
+    results = results[["obs_ratio"] + [col for col in results.columns if "Graph" in col or "Theta" in col]]
+
+    return results
+
 
 def plot_l1_tuning(filename, graph_metric="aucroc", figsize=(10, 5)):
     fig, ax = plt.subplots(1, 2, figsize=figsize)
