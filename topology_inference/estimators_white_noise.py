@@ -210,7 +210,7 @@ class StabilitySelector:
         self.len_theta = len_theta
         self.n_jobs = n_jobs
     
-    def glasso_estimate(self, Y):
+    def glasso_estimate(self, Y, estimate_theta):
         cv_model = QuicGraphicalLassoCV(
             lam=self.lam_init,
             lams=self.lams,
@@ -240,7 +240,10 @@ class StabilitySelector:
         # Estimate theta from the final A
         k = Y.shape[1]
         S = (Y @ Y.T) / k
-        theta = SpectralTemplates.lstsq_coefficients(A, S, self.len_theta)
+        if estimate_theta:
+            theta = SpectralTemplates.lstsq_coefficients(A, S, self.len_theta)
+        else:
+            theta = torch.nan
         return A, theta
 
 
@@ -256,7 +259,7 @@ class SpectralTemplates:
         self.epsilon_range = epsilon_range
         self.num_iter_reweight_refinements = num_iter_reweight_refinements
 
-    def spectral_estimate(self, Y):
+    def spectral_estimate(self, Y, estimate_theta):
         num_obs = Y.shape[1]
         num_nodes = Y.shape[0]
         obs_ratio = num_obs / num_nodes
@@ -271,10 +274,13 @@ class SpectralTemplates:
         S_espectral = torch.tensor(S_espectral).abs()
         S_espectral = S_espectral.fill_diagonal_(0.0)
 
-        theta_spectral = self.lstsq_coefficients(S_espectral,
-                                                 Cx=emp_cov,
-                                                 theta_length=self.len_theta,
-                                                 threshold=self.threshold_fun(obs_ratio))
+        if estimate_theta:
+            theta_spectral = self.lstsq_coefficients(S_espectral,
+                                                    Cx=emp_cov,
+                                                    theta_length=self.len_theta,
+                                                    threshold=self.threshold_fun(obs_ratio))
+        else:
+            theta_spectral = torch.nan
         A_spectral = (S_espectral > self.threshold_fun(obs_ratio)).float()
 
         return A_spectral, theta_spectral
