@@ -1,2 +1,0 @@
-ergm_aks
-{"nodes": 50, "statistics": "aks_0.3", "size_dataset": 1000}

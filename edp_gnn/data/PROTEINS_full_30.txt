@@ -1,2 +1,0 @@
-PROTEINS_full_30
-268
